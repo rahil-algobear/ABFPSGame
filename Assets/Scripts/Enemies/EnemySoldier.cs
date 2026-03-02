@@ -110,7 +110,7 @@ namespace Game.Enemies
                     Player.PlayerHealth playerHealth = hit.collider.GetComponent<Player.PlayerHealth>();
                     if (playerHealth != null)
                     {
-                        playerHealth.TakeDamage(_damage, DamageSystem.DamageType.Bullet, hit.point);
+                        playerHealth.TakeDamage(_damage, hit.point);
                     }
                 }
             }
@@ -141,7 +141,7 @@ namespace Game.Enemies
             Player.PlayerHealth playerHealth = other.GetComponent<Player.PlayerHealth>();
             if (playerHealth != null)
             {
-                playerHealth.TakeDamage(_damage, _damageType, transform.position);
+                playerHealth.TakeDamage(_damage, transform.position);
             }
 
             Destroy(gameObject);

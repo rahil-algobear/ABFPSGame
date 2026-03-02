@@ -1,6 +1,5 @@
 using UnityEngine;
 using Game.Core;
-using Game.Weapons;
 
 namespace Game.Enemies
 {
@@ -8,7 +7,7 @@ namespace Game.Enemies
     /// Base class for all enemy types.
     /// </summary>
     [RequireComponent(typeof(Rigidbody))]
-    public class EnemyBase : MonoBehaviour, IDamageable
+    public class EnemyBase : MonoBehaviour, Game.Core.IDamageable
     {
         #region Health
         [Header("Health")]
@@ -22,9 +21,10 @@ namespace Game.Enemies
 
         #region Damage Settings
         [Header("Damage Settings")]
-        [SerializeField] protected float _meleeDamage = 10f;
+        [SerializeField] protected float _damage = 10f;
         [SerializeField] protected float _attackRange = 2f;
         [SerializeField] protected float _attackCooldown = 1f;
+        [SerializeField] protected float _armor = 0f;
 
         protected float _lastAttackTime;
         #endregion
@@ -32,12 +32,23 @@ namespace Game.Enemies
         #region Score
         [Header("Score")]
         [SerializeField] protected int _scoreValue = 100;
+
+        public int ScoreValue => _scoreValue;
+        #endregion
+
+        #region Audio
+        [Header("Audio")]
+        [SerializeField] protected AudioClip _attackSound;
+        [SerializeField] protected AudioClip _hurtSound;
+        [SerializeField] protected AudioClip _deathSound;
         #endregion
 
         #region Components
         protected Rigidbody _rigidbody;
         protected Collider _collider;
         protected EnemyAI _ai;
+        protected UnityEngine.AI.NavMeshAgent _agent;
+        protected Animator _animator;
         #endregion
 
         #region Unity Lifecycle
@@ -46,8 +57,15 @@ namespace Game.Enemies
             _rigidbody = GetComponent<Rigidbody>();
             _collider = GetComponent<Collider>();
             _ai = GetComponent<EnemyAI>();
+            _agent = GetComponent<UnityEngine.AI.NavMeshAgent>();
+            _animator = GetComponent<Animator>();
 
             _currentHealth = _maxHealth;
+        }
+
+        protected virtual void Start()
+        {
+            // Override in subclasses if needed
         }
         #endregion
 
@@ -55,18 +73,24 @@ namespace Game.Enemies
         /// <summary>
         /// Take damage from a weapon hit.
         /// </summary>
-        /// <param name="damage">Damage amount</param>
-        /// <param name="hitPoint">Hit position</param>
-        /// <param name="hitDirection">Hit direction</param>
-        public virtual void TakeDamage(float damage, Vector3 hitPoint, Vector3 hitDirection)
+        public virtual void TakeDamage(float damage, DamageSystem.DamageType damageType, Vector3 hitPoint)
         {
             if (!IsAlive) return;
 
-            _currentHealth -= damage;
+            // Apply armor reduction
+            float finalDamage = Mathf.Max(damage - _armor, damage * 0.1f);
+            _currentHealth -= finalDamage;
+
+            // Play hurt sound
+            if (_hurtSound != null)
+            {
+                AudioManager.Instance.PlaySFX3D(_hurtSound, transform.position);
+            }
 
             // Alert AI
             if (_ai != null)
             {
+                Vector3 hitDirection = (transform.position - hitPoint).normalized;
                 _ai.OnDamageTaken(hitPoint, hitDirection);
             }
 
@@ -75,14 +99,22 @@ namespace Game.Enemies
                 Die();
             }
         }
-        #endregion
 
-        #region Death
         /// <summary>
         /// Handle enemy death.
         /// </summary>
-        protected virtual void Die()
+        public virtual void Die()
         {
+            if (!IsAlive) return;
+
+            _currentHealth = 0f;
+
+            // Play death sound
+            if (_deathSound != null)
+            {
+                AudioManager.Instance.PlaySFX3D(_deathSound, transform.position);
+            }
+
             // Register kill
             GameManager.Instance.RegisterEnemyKill(_scoreValue);
 
@@ -92,13 +124,20 @@ namespace Game.Enemies
                 _ai.enabled = false;
             }
 
+            if (_agent != null)
+            {
+                _agent.enabled = false;
+            }
+
             // Enable ragdoll or play death animation
             EnableRagdoll();
 
             // Destroy after delay
             Destroy(gameObject, 5f);
         }
+        #endregion
 
+        #region Death
         /// <summary>
         /// Enable ragdoll physics.
         /// </summary>
@@ -121,7 +160,6 @@ namespace Game.Enemies
         /// <summary>
         /// Attempt to attack the player.
         /// </summary>
-        /// <param name="player">Player transform</param>
         public virtual void AttackPlayer(Transform player)
         {
             if (!IsAlive || player == null) return;
@@ -131,13 +169,20 @@ namespace Game.Enemies
             if (distance <= _attackRange && Time.time >= _lastAttackTime + _attackCooldown)
             {
                 _lastAttackTime = Time.time;
+                PerformAttack(player);
+            }
+        }
 
-                // Deal damage to player
-                var playerHealth = player.GetComponent<Game.Player.PlayerHealth>();
-                if (playerHealth != null)
-                {
-                    playerHealth.TakeDamage(_meleeDamage, transform.position);
-                }
+        /// <summary>
+        /// Perform the actual attack. Override in subclasses.
+        /// </summary>
+        protected virtual void PerformAttack(Transform target)
+        {
+            // Default melee attack
+            var playerHealth = target.GetComponent<Game.Player.PlayerHealth>();
+            if (playerHealth != null)
+            {
+                playerHealth.TakeDamage(_damage, transform.position);
             }
         }
         #endregion

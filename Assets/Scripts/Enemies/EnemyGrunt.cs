@@ -52,7 +52,7 @@ namespace Game.Enemies
             Player.PlayerHealth playerHealth = target.GetComponent<Player.PlayerHealth>();
             if (playerHealth != null)
             {
-                playerHealth.TakeDamage(_damage, DamageSystem.DamageType.Melee, transform.position);
+                playerHealth.TakeDamage(_damage, transform.position);
             }
         }
 

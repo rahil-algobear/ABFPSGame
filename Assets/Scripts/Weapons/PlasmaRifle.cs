@@ -50,6 +50,34 @@ namespace Game.Weapons
         }
 
         /// <summary>
+        /// Reloads the plasma rifle.
+        /// </summary>
+        public override void Reload()
+        {
+            if (_isReloading || _currentAmmo >= _weaponData.magazineSize || _reserveAmmo <= 0)
+                return;
+
+            _isReloading = true;
+            
+            if (_weaponData.reloadSound != null)
+            {
+                AudioManager.Instance.PlaySFX(_weaponData.reloadSound);
+            }
+
+            Invoke(nameof(FinishReload), _weaponData.reloadTime);
+        }
+
+        private void FinishReload()
+        {
+            int ammoNeeded = _weaponData.magazineSize - _currentAmmo;
+            int ammoToReload = Mathf.Min(ammoNeeded, _reserveAmmo);
+            
+            _currentAmmo += ammoToReload;
+            _reserveAmmo -= ammoToReload;
+            _isReloading = false;
+        }
+
+        /// <summary>
         /// Fires a plasma projectile.
         /// </summary>
         private void FirePlasmaProjectile()
@@ -104,7 +132,7 @@ namespace Game.Weapons
         /// <summary>
         /// Applies camera recoil.
         /// </summary>
-        private void ApplyRecoil()
+        protected override void ApplyRecoil()
         {
             Player.MouseLook mouseLook = GetComponentInParent<Player.MouseLook>();
             if (mouseLook != null)
@@ -154,7 +182,7 @@ namespace Game.Weapons
         private void OnTriggerEnter(Collider other)
         {
             // Apply damage
-            IDamageable damageable = other.GetComponent<IDamageable>();
+            Game.Core.IDamageable damageable = other.GetComponent<Game.Core.IDamageable>();
             if (damageable != null)
             {
                 float distance = Vector3.Distance(_startPosition, transform.position);

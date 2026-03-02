@@ -34,9 +34,12 @@ namespace Game.Weapons
 
         #region Components
         [Header("References")]
-        [SerializeField] protected Transform _firePoint;
+        [SerializeField] protected Transform _muzzlePoint;
         [SerializeField] protected Camera _playerCamera;
         [SerializeField] protected MouseLook _mouseLook;
+        [SerializeField] protected ParticleSystem _muzzleFlash;
+        [SerializeField] protected GameObject _shellEjectPrefab;
+        [SerializeField] protected Transform _shellEjectPoint;
 
         protected LayerMask _hitMask;
         #endregion
@@ -88,211 +91,138 @@ namespace Game.Weapons
         public abstract void Reload();
         #endregion
 
-        #region Virtual Methods
+        #region Spread
         /// <summary>
-        /// Aim down sights.
+        /// Apply spread to firing direction.
         /// </summary>
-        /// <param name="aiming">True if aiming</param>
-        public virtual void AimDownSights(bool aiming)
+        protected Vector3 ApplySpread(Vector3 direction)
         {
-            _isAiming = aiming;
+            float spreadX = Random.Range(-_currentSpread, _currentSpread);
+            float spreadY = Random.Range(-_currentSpread, _currentSpread);
+            return Quaternion.Euler(spreadY, spreadX, 0) * direction;
         }
 
         /// <summary>
-        /// Equip the weapon.
+        /// Increase spread after firing.
         /// </summary>
-        public virtual void Equip()
+        protected void IncreaseSpread()
         {
-            gameObject.SetActive(true);
+            _currentSpread = Mathf.Min(_currentSpread + _weaponData.spreadIncrease, _weaponData.maxSpread);
         }
 
         /// <summary>
-        /// Unequip the weapon.
+        /// Recover spread over time.
         /// </summary>
-        public virtual void Unequip()
-        {
-            gameObject.SetActive(false);
-        }
-        #endregion
-
-        #region Protected Methods
-        /// <summary>
-        /// Check if weapon can fire.
-        /// </summary>
-        /// <returns>True if can fire</returns>
-        protected virtual bool CanFire()
-        {
-            return !_isReloading && Time.time >= _nextFireTime && _currentAmmo > 0;
-        }
-
-        /// <summary>
-        /// Perform raycast hit detection.
-        /// </summary>
-        /// <param name="spreadOffset">Spread offset for this shot</param>
-        protected virtual void PerformRaycast(Vector2 spreadOffset)
-        {
-            if (_playerCamera == null || _firePoint == null) return;
-
-            // Calculate ray direction with spread
-            Vector3 direction = _playerCamera.transform.forward;
-            direction += _playerCamera.transform.right * spreadOffset.x;
-            direction += _playerCamera.transform.up * spreadOffset.y;
-            direction.Normalize();
-
-            Ray ray = new Ray(_firePoint.position, direction);
-            RaycastHit hit;
-
-            if (Physics.Raycast(ray, out hit, _weaponData.maxRange, _hitMask))
-            {
-                ProcessHit(hit);
-            }
-        }
-
-        /// <summary>
-        /// Process a successful hit.
-        /// </summary>
-        /// <param name="hit">RaycastHit data</param>
-        protected virtual void ProcessHit(RaycastHit hit)
-        {
-            float distance = hit.distance;
-            float damage = _weaponData.GetDamageAtDistance(distance);
-
-            // Check for headshot
-            if (hit.collider.CompareTag("EnemyHead"))
-            {
-                damage *= _weaponData.headshotMultiplier;
-            }
-
-            // Apply damage to hit object
-            var damageable = hit.collider.GetComponentInParent<IDamageable>();
-            if (damageable != null)
-            {
-                damageable.TakeDamage(damage, hit.point, -hit.normal);
-            }
-
-            // Spawn impact effect
-            if (_weaponData.bulletImpactPrefab != null)
-            {
-                GameObject impact = Instantiate(
-                    _weaponData.bulletImpactPrefab,
-                    hit.point,
-                    Quaternion.LookRotation(hit.normal)
-                );
-                Destroy(impact, 2f);
-            }
-        }
-
-        /// <summary>
-        /// Apply recoil to camera.
-        /// </summary>
-        protected virtual void ApplyRecoil()
-        {
-            if (_mouseLook == null) return;
-
-            Vector2 recoil = new Vector2(
-                Random.Range(_weaponData.recoilMin.x, _weaponData.recoilMax.x),
-                Random.Range(_weaponData.recoilMin.y, _weaponData.recoilMax.y)
-            );
-
-            _mouseLook.AddRecoil(recoil);
-        }
-
-        /// <summary>
-        /// Increase weapon spread.
-        /// </summary>
-        protected virtual void IncreaseSpread()
-        {
-            _currentSpread += _weaponData.spreadIncreasePerShot;
-            _currentSpread = Mathf.Min(_currentSpread, _weaponData.maxSpread);
-        }
-
-        /// <summary>
-        /// Handle spread recovery over time.
-        /// </summary>
-        protected virtual void HandleSpreadRecovery()
+        protected void HandleSpreadRecovery()
         {
             if (_currentSpread > _weaponData.baseSpread)
             {
-                _currentSpread -= _weaponData.spreadDecreaseRate * Time.deltaTime;
-                _currentSpread = Mathf.Max(_currentSpread, _weaponData.baseSpread);
+                _currentSpread = Mathf.Max(_currentSpread - _weaponData.spreadRecovery * Time.deltaTime, _weaponData.baseSpread);
             }
         }
+        #endregion
 
+        #region Raycast
         /// <summary>
-        /// Get random spread offset.
+        /// Perform raycast for hitscan weapons.
         /// </summary>
-        /// <returns>Spread offset vector</returns>
-        protected virtual Vector2 GetSpreadOffset()
+        protected bool PerformRaycast(Vector3 origin, Vector3 direction, out RaycastHit hit)
         {
-            float spread = _isAiming ? _currentSpread * 0.5f : _currentSpread;
-            return Random.insideUnitCircle * spread * 0.01f;
+            return Physics.Raycast(origin, direction, out hit, _weaponData.range, _hitMask);
         }
 
         /// <summary>
-        /// Spawn muzzle flash effect.
+        /// Apply damage to hit target.
         /// </summary>
-        protected virtual void SpawnMuzzleFlash()
+        protected void ApplyDamage(RaycastHit hit)
         {
-            if (_weaponData.muzzleFlashPrefab != null && _firePoint != null)
+            IDamageable damageable = hit.collider.GetComponent<IDamageable>();
+            if (damageable != null)
             {
-                GameObject flash = Instantiate(
-                    _weaponData.muzzleFlashPrefab,
-                    _firePoint.position,
-                    _firePoint.rotation,
-                    _firePoint
+                float distance = hit.distance;
+                float finalDamage = DamageSystem.CalculateDamage(
+                    _weaponData.damage,
+                    DamageSystem.DetermineHitLocation(hit.collider),
+                    _weaponData.damageType,
+                    distance,
+                    _weaponData.range
                 );
-                Destroy(flash, 0.1f);
+
+                damageable.TakeDamage(finalDamage, _weaponData.damageType, hit.point);
+            }
+        }
+        #endregion
+
+        #region Effects
+        /// <summary>
+        /// Play muzzle flash effect.
+        /// </summary>
+        protected void PlayMuzzleFlash()
+        {
+            if (_muzzleFlash != null)
+            {
+                _muzzleFlash.Play();
             }
         }
 
         /// <summary>
         /// Play fire sound.
         /// </summary>
-        protected virtual void PlayFireSound()
+        protected void PlayFireSound()
         {
             if (_weaponData.fireSound != null)
             {
-                AudioManager.Instance.PlaySpatialSFX(_weaponData.fireSound, transform.position);
+                AudioManager.Instance.PlaySFX(_weaponData.fireSound);
+            }
+        }
+
+        /// <summary>
+        /// Eject shell casing.
+        /// </summary>
+        protected void EjectShell()
+        {
+            if (_shellEjectPrefab != null && _shellEjectPoint != null)
+            {
+                GameObject shell = Instantiate(_shellEjectPrefab, _shellEjectPoint.position, _shellEjectPoint.rotation);
+                Rigidbody rb = shell.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.AddForce(_shellEjectPoint.right * Random.Range(2f, 4f), ForceMode.Impulse);
+                    rb.AddTorque(Random.insideUnitSphere * 10f);
+                }
+                Destroy(shell, 3f);
+            }
+        }
+
+        /// <summary>
+        /// Apply camera recoil.
+        /// </summary>
+        protected virtual void ApplyRecoil()
+        {
+            if (_mouseLook != null)
+            {
+                float recoil = _weaponData.recoilAmount + Random.Range(-_weaponData.recoilVariance, _weaponData.recoilVariance);
+                _mouseLook.ApplyRecoil(recoil);
             }
         }
         #endregion
 
-        #region Public Methods
+        #region Ammo Management
         /// <summary>
         /// Add ammo to reserve.
         /// </summary>
-        /// <param name="amount">Amount to add</param>
         public void AddAmmo(int amount)
         {
-            _reserveAmmo += amount;
-            _reserveAmmo = Mathf.Min(_reserveAmmo, _weaponData.maxReserveAmmo);
+            _reserveAmmo = Mathf.Min(_reserveAmmo + amount, _weaponData.maxReserveAmmo);
         }
 
         /// <summary>
-        /// Check if weapon is reloading.
+        /// Check if weapon needs reload.
         /// </summary>
-        /// <returns>True if reloading</returns>
-        public bool IsReloading()
+        public bool NeedsReload()
         {
-            return _isReloading;
-        }
-
-        /// <summary>
-        /// Check if weapon is aiming.
-        /// </summary>
-        /// <returns>True if aiming</returns>
-        public bool IsAiming()
-        {
-            return _isAiming;
+            return _currentAmmo < _weaponData.magazineSize && _reserveAmmo > 0;
         }
         #endregion
-    }
-
-    /// <summary>
-    /// Interface for objects that can take damage.
-    /// </summary>
-    public interface IDamageable
-    {
-        void TakeDamage(float damage, Vector3 hitPoint, Vector3 hitDirection);
     }
 }

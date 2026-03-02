@@ -1,4 +1,5 @@
 using UnityEngine;
+using Game.Core;
 
 namespace Game.Weapons
 {
@@ -13,8 +14,11 @@ namespace Game.Weapons
         public Sprite weaponIcon;
 
         [Header("Damage")]
+        public float damage = 25f;
         public float baseDamage = 25f;
+        public DamageType damageType = DamageType.Ballistic;
         public float headshotMultiplier = 2f;
+        public float range = 100f;
         public float maxRange = 100f;
         public bool hasDamageFalloff = true;
         public AnimationCurve damageFalloffCurve = AnimationCurve.Linear(0f, 1f, 1f, 0.5f);
@@ -31,11 +35,15 @@ namespace Game.Weapons
         [Header("Accuracy")]
         public float baseSpread = 0.5f;
         public float maxSpread = 5f;
+        public float spreadIncrease = 0.3f;
         public float spreadIncreasePerShot = 0.3f;
+        public float spreadRecovery = 2f;
         public float spreadDecreaseRate = 2f;
         public int pelletsPerShot = 1; // For shotguns
 
         [Header("Recoil")]
+        public float recoilAmount = 1.5f;
+        public float recoilVariance = 0.3f;
         public Vector2 recoilMin = new Vector2(-0.5f, 1f);
         public Vector2 recoilMax = new Vector2(0.5f, 2f);
         public float recoilRecoverySpeed = 5f;
