@@ -3,87 +3,55 @@ using Game.Core;
 
 namespace Game.Player
 {
-    /// <summary>
-    /// Footstep audio system tied to player movement state.
-    /// </summary>
     [RequireComponent(typeof(AudioSource))]
     public class FootstepAudio : MonoBehaviour
     {
-        #region Components
+        [Header("Footstep Sounds")]
+        [SerializeField] private AudioClip[] _footstepSounds;
+        [SerializeField] private float _footstepInterval = 0.5f;
+        [SerializeField] private float _sprintFootstepInterval = 0.3f;
+
+        [Header("Volume")]
+        [SerializeField] private float _walkVolume = 0.5f;
+        [SerializeField] private float _sprintVolume = 0.7f;
+
         private AudioSource _audioSource;
         private PlayerController _playerController;
-        #endregion
+        private float _lastFootstepTime;
 
-        #region Settings
-        [Header("Footstep Settings")]
-        [SerializeField] private AudioClip[] _footstepSounds;
-        [SerializeField] private float _walkStepInterval = 0.5f;
-        [SerializeField] private float _sprintStepInterval = 0.3f;
-        [SerializeField] [Range(0f, 1f)] private float _footstepVolume = 0.5f;
-        #endregion
-
-        #region State
-        private float _stepTimer = 0f;
-        #endregion
-
-        #region Unity Lifecycle
         private void Awake()
         {
             _audioSource = GetComponent<AudioSource>();
             _playerController = GetComponent<PlayerController>();
-
-            if (_audioSource != null)
-            {
-                _audioSource.playOnAwake = false;
-                _audioSource.spatialBlend = 0f; // 2D sound
-            }
         }
 
         private void Update()
         {
-            if (GameManager.Instance.IsPaused || GameManager.Instance.IsGameOver)
+            if (_playerController == null || _footstepSounds.Length == 0)
                 return;
 
-            HandleFootsteps();
-        }
-        #endregion
+            bool isMoving = _playerController.IsMoving;
+            bool isSprinting = _playerController.IsSprinting;
 
-        #region Footstep Logic
-        /// <summary>
-        /// Handle footstep audio based on movement state.
-        /// </summary>
-        private void HandleFootsteps()
-        {
-            if (_playerController == null || !_playerController.IsGrounded() || !_playerController.IsMoving())
+            if (isMoving)
             {
-                _stepTimer = 0f;
-                return;
-            }
+                float interval = isSprinting ? _sprintFootstepInterval : _footstepInterval;
+                float volume = isSprinting ? _sprintVolume : _walkVolume;
 
-            float stepInterval = _playerController.IsSprinting() ? _sprintStepInterval : _walkStepInterval;
-            _stepTimer += Time.deltaTime;
-
-            if (_stepTimer >= stepInterval)
-            {
-                PlayFootstep();
-                _stepTimer = 0f;
+                if (Time.time >= _lastFootstepTime + interval)
+                {
+                    PlayFootstep(volume);
+                    _lastFootstepTime = Time.time;
+                }
             }
         }
 
-        /// <summary>
-        /// Play a random footstep sound.
-        /// </summary>
-        private void PlayFootstep()
+        private void PlayFootstep(float volume)
         {
-            if (_footstepSounds == null || _footstepSounds.Length == 0 || _audioSource == null)
-                return;
+            if (_footstepSounds.Length == 0) return;
 
             AudioClip clip = _footstepSounds[Random.Range(0, _footstepSounds.Length)];
-            if (clip != null)
-            {
-                _audioSource.PlayOneShot(clip, _footstepVolume);
-            }
+            _audioSource.PlayOneShot(clip, volume);
         }
-        #endregion
     }
 }

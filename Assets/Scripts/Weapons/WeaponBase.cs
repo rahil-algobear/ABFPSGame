@@ -1,154 +1,86 @@
 using UnityEngine;
+using Game.Core;
 
 namespace Game.Weapons
 {
-    /// <summary>
-    /// Base class for all weapons in the game.
-    /// </summary>
     public abstract class WeaponBase : MonoBehaviour
     {
-        #region Weapon Data
         [Header("Weapon Data")]
         [SerializeField] protected WeaponData _weaponData;
 
-        public WeaponData WeaponData => _weaponData;
-        public string WeaponName => _weaponData != null ? _weaponData.weaponName : "Unknown";
-        #endregion
-
-        #region Ammo
         [Header("Ammo")]
-        [SerializeField] protected int _currentAmmo;
-        [SerializeField] protected int _reserveAmmo;
+        protected int _currentAmmo;
+        protected int _reserveAmmo;
 
-        public int CurrentAmmo => _currentAmmo;
-        public int ReserveAmmo => _reserveAmmo;
-        public int MaxAmmo => _weaponData != null ? _weaponData.maxAmmo : 0;
-        public int MaxReserveAmmo => _weaponData != null ? _weaponData.maxReserveAmmo : 0;
-        #endregion
+        [Header("State")]
+        protected float _lastFireTime;
+        protected bool _isReloading;
+        protected bool _isEquipped;
 
-        #region Fire State
-        protected bool _isFiring;
-        protected float _nextFireTime;
+        public WeaponData WeaponData => _weaponData;
+        public bool CanFire => _currentAmmo > 0 && !_isReloading && Time.time >= _lastFireTime + (1f / _weaponData.fireRate);
+        public bool IsReloading => _isReloading;
 
-        public bool CanFire => Time.time >= _nextFireTime && _currentAmmo > 0;
-        #endregion
-
-        #region Components
-        [Header("Components")]
-        [SerializeField] protected Transform _firePoint;
-        [SerializeField] protected ParticleSystem _muzzleFlash;
-        [SerializeField] protected AudioSource _audioSource;
-        #endregion
-
-        #region Unity Lifecycle
         protected virtual void Awake()
         {
-            if (_weaponData != null)
-            {
-                _currentAmmo = _weaponData.maxAmmo;
-                _reserveAmmo = _weaponData.maxReserveAmmo;
-            }
-
-            if (_audioSource == null)
-            {
-                _audioSource = GetComponent<AudioSource>();
-            }
+            _currentAmmo = _weaponData.magazineSize;
+            _reserveAmmo = _weaponData.maxAmmo;
         }
 
-        protected virtual void Start()
-        {
-            // Override in derived classes
-        }
+        public abstract void Fire();
 
-        protected virtual void Update()
-        {
-            // Override in derived classes
-        }
-        #endregion
-
-        #region Public Methods
-        /// <summary>
-        /// Get current ammo count.
-        /// </summary>
-        public int GetCurrentAmmo()
-        {
-            return _currentAmmo;
-        }
-
-        /// <summary>
-        /// Get reserve ammo count.
-        /// </summary>
-        public int GetReserveAmmo()
-        {
-            return _reserveAmmo;
-        }
-
-        /// <summary>
-        /// Fire the weapon.
-        /// </summary>
-        public virtual void Fire()
-        {
-            if (!CanFire) return;
-
-            _currentAmmo--;
-            _nextFireTime = Time.time + (1f / (_weaponData != null ? _weaponData.fireRate : 1f));
-
-            // Play muzzle flash
-            if (_muzzleFlash != null)
-            {
-                _muzzleFlash.Play();
-            }
-
-            // Play fire sound
-            if (_audioSource != null && _weaponData != null && _weaponData.fireSound != null)
-            {
-                _audioSource.PlayOneShot(_weaponData.fireSound);
-            }
-        }
-
-        /// <summary>
-        /// Reload the weapon.
-        /// </summary>
         public virtual void Reload()
         {
-            if (_currentAmmo >= MaxAmmo || _reserveAmmo <= 0) return;
+            if (_isReloading || _currentAmmo == _weaponData.magazineSize || _reserveAmmo <= 0)
+                return;
 
-            int ammoNeeded = MaxAmmo - _currentAmmo;
+            _isReloading = true;
+            Invoke(nameof(CompleteReload), _weaponData.reloadTime);
+        }
+
+        protected virtual void CompleteReload()
+        {
+            int ammoNeeded = _weaponData.magazineSize - _currentAmmo;
             int ammoToReload = Mathf.Min(ammoNeeded, _reserveAmmo);
 
             _currentAmmo += ammoToReload;
             _reserveAmmo -= ammoToReload;
-
-            // Play reload sound
-            if (_audioSource != null && _weaponData != null && _weaponData.reloadSound != null)
-            {
-                _audioSource.PlayOneShot(_weaponData.reloadSound);
-            }
+            _isReloading = false;
         }
 
-        /// <summary>
-        /// Add ammo to reserve.
-        /// </summary>
         public virtual void AddAmmo(int amount)
         {
-            _reserveAmmo = Mathf.Min(_reserveAmmo + amount, MaxReserveAmmo);
+            _reserveAmmo = Mathf.Min(_reserveAmmo + amount, _weaponData.maxAmmo);
         }
 
-        /// <summary>
-        /// Equip the weapon.
-        /// </summary>
+        public int GetCurrentAmmo() => _currentAmmo;
+        public int GetReserveAmmo() => _reserveAmmo;
+
+        public virtual void AddReserveAmmo(int amount)
+        {
+            _reserveAmmo = Mathf.Min(_reserveAmmo + amount, _weaponData.maxAmmo);
+        }
+
         public virtual void Equip()
         {
+            _isEquipped = true;
             gameObject.SetActive(true);
         }
 
-        /// <summary>
-        /// Unequip the weapon.
-        /// </summary>
         public virtual void Unequip()
         {
+            _isEquipped = false;
             gameObject.SetActive(false);
         }
-        #endregion
+
+        public virtual void AimDownSights(bool isAiming)
+        {
+            // Override in derived classes for ADS behavior
+        }
+
+        protected virtual void ApplyRecoil()
+        {
+            // Override in derived classes for recoil behavior
+        }
     }
 }

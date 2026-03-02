@@ -2,326 +2,176 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Game.Core;
-using Game.Player;
-using Game.Weapons;
 
 namespace Game.UI
 {
-    /// <summary>
-    /// Manages all UI elements and updates.
-    /// </summary>
     public class UIManager : MonoBehaviour
     {
-        #region HUD Elements
         [Header("HUD")]
-        [SerializeField] private GameObject _hudPanel;
-        [SerializeField] private Image _crosshair;
-        [SerializeField] private Image _healthBar;
         [SerializeField] private TextMeshProUGUI _healthText;
+        [SerializeField] private TextMeshProUGUI _armorText;
         [SerializeField] private TextMeshProUGUI _ammoText;
         [SerializeField] private TextMeshProUGUI _scoreText;
-        [SerializeField] private Image _damageVignette;
-        #endregion
+        [SerializeField] private Image _healthBar;
+        [SerializeField] private Image _armorBar;
+        [SerializeField] private Image _crosshair;
 
-        #region Pause Menu
-        [Header("Pause Menu")]
-        [SerializeField] private GameObject _pauseMenuPanel;
-        [SerializeField] private Button _resumeButton;
-        [SerializeField] private Button _restartButton;
-        [SerializeField] private Button _quitButton;
-        #endregion
+        [Header("Menus")]
+        [SerializeField] private GameObject _pauseMenu;
+        [SerializeField] private GameObject _gameOverMenu;
+        [SerializeField] private GameObject _levelCompleteMenu;
 
-        #region Game Over
-        [Header("Game Over")]
-        [SerializeField] private GameObject _gameOverPanel;
-        [SerializeField] private TextMeshProUGUI _finalScoreText;
-        [SerializeField] private TextMeshProUGUI _killsText;
-        [SerializeField] private TextMeshProUGUI _timeText;
-        [SerializeField] private Button _gameOverRestartButton;
-        [SerializeField] private Button _gameOverQuitButton;
-        #endregion
+        [Header("Damage Indicator")]
+        [SerializeField] private Image _damageOverlay;
+        [SerializeField] private float _damageFadeDuration = 0.5f;
 
-        #region Level Complete
-        [Header("Level Complete")]
-        [SerializeField] private GameObject _levelCompletePanel;
-        [SerializeField] private TextMeshProUGUI _completeScoreText;
-        [SerializeField] private TextMeshProUGUI _completeKillsText;
-        [SerializeField] private TextMeshProUGUI _completeTimeText;
-        [SerializeField] private Button _levelCompleteRestartButton;
-        [SerializeField] private Button _levelCompleteQuitButton;
-        #endregion
-
-        #region Unity Lifecycle
-        private void OnEnable()
-        {
-            // Subscribe to events
-            PlayerHealth.OnHealthChanged += UpdateHealth;
-            PlayerHealth.OnDamageTaken += ShowDamageDirection;
-            WeaponManager.OnAmmoChanged += UpdateAmmo;
-            GameManager.OnScoreChanged += UpdateScore;
-            GameManager.OnGamePaused += ShowPauseMenu;
-            GameManager.OnGameResumed += HidePauseMenu;
-            GameManager.OnGameOver += ShowGameOver;
-            GameManager.OnLevelComplete += ShowLevelComplete;
-        }
-
-        private void OnDisable()
-        {
-            // Unsubscribe from events
-            PlayerHealth.OnHealthChanged -= UpdateHealth;
-            PlayerHealth.OnDamageTaken -= ShowDamageDirection;
-            WeaponManager.OnAmmoChanged -= UpdateAmmo;
-            GameManager.OnScoreChanged -= UpdateScore;
-            GameManager.OnGamePaused -= ShowPauseMenu;
-            GameManager.OnGameResumed -= HidePauseMenu;
-            GameManager.OnGameOver -= ShowGameOver;
-            GameManager.OnLevelComplete -= ShowLevelComplete;
-        }
+        private Game.Player.WeaponManager _weaponManager;
+        private Game.Player.PlayerHealth _playerHealth;
+        private float _damageAlpha;
 
         private void Start()
         {
-            InitializeUI();
-            SetupButtons();
+            _weaponManager = FindObjectOfType<Game.Player.WeaponManager>();
+            _playerHealth = FindObjectOfType<Game.Player.PlayerHealth>();
+
+            if (_pauseMenu != null) _pauseMenu.SetActive(false);
+            if (_gameOverMenu != null) _gameOverMenu.SetActive(false);
+            if (_levelCompleteMenu != null) _levelCompleteMenu.SetActive(false);
+
+            GameManager.OnGamePaused += ShowPauseMenu;
+            GameManager.OnGameResumed += HidePauseMenu;
+            GameManager.OnGameOver += ShowGameOverMenu;
+            GameManager.OnLevelComplete += ShowLevelCompleteMenu;
+
+            if (_playerHealth != null)
+            {
+                Game.Player.PlayerHealth.OnHealthChanged += UpdateHealthUI;
+                Game.Player.PlayerHealth.OnArmorChanged += UpdateArmorUI;
+            }
+
+            if (_weaponManager != null)
+            {
+                UpdateAmmoUI();
+            }
+        }
+
+        private void OnDestroy()
+        {
+            GameManager.OnGamePaused -= ShowPauseMenu;
+            GameManager.OnGameResumed -= HidePauseMenu;
+            GameManager.OnGameOver -= ShowGameOverMenu;
+            GameManager.OnLevelComplete -= ShowLevelCompleteMenu;
+
+            if (_playerHealth != null)
+            {
+                Game.Player.PlayerHealth.OnHealthChanged -= UpdateHealthUI;
+                Game.Player.PlayerHealth.OnArmorChanged -= UpdateArmorUI;
+            }
         }
 
         private void Update()
         {
-            UpdateDamageVignette();
-        }
-        #endregion
+            if (_damageAlpha > 0)
+            {
+                _damageAlpha -= Time.deltaTime / _damageFadeDuration;
+                if (_damageOverlay != null)
+                {
+                    Color color = _damageOverlay.color;
+                    color.a = _damageAlpha;
+                    _damageOverlay.color = color;
+                }
+            }
 
-        #region Initialization
-        /// <summary>
-        /// Initialize UI state.
-        /// </summary>
-        private void InitializeUI()
-        {
-            if (_hudPanel != null) _hudPanel.SetActive(true);
-            if (_pauseMenuPanel != null) _pauseMenuPanel.SetActive(false);
-            if (_gameOverPanel != null) _gameOverPanel.SetActive(false);
-            if (_levelCompletePanel != null) _levelCompletePanel.SetActive(false);
-
-            UpdateScore(0);
+            UpdateAmmoUI();
         }
 
-        /// <summary>
-        /// Setup button listeners.
-        /// </summary>
-        private void SetupButtons()
+        private void UpdateHealthUI(float current, float max)
         {
-            if (_resumeButton != null)
-                _resumeButton.onClick.AddListener(() => GameManager.Instance.ResumeGame());
+            if (_healthText != null)
+            {
+                _healthText.text = $"Health: {Mathf.CeilToInt(current)}";
+            }
 
-            if (_restartButton != null)
-                _restartButton.onClick.AddListener(() => GameManager.Instance.RestartLevel());
-
-            if (_quitButton != null)
-                _quitButton.onClick.AddListener(() => GameManager.Instance.QuitGame());
-
-            if (_gameOverRestartButton != null)
-                _gameOverRestartButton.onClick.AddListener(() => GameManager.Instance.RestartLevel());
-
-            if (_gameOverQuitButton != null)
-                _gameOverQuitButton.onClick.AddListener(() => GameManager.Instance.QuitGame());
-
-            if (_levelCompleteRestartButton != null)
-                _levelCompleteRestartButton.onClick.AddListener(() => GameManager.Instance.RestartLevel());
-
-            if (_levelCompleteQuitButton != null)
-                _levelCompleteQuitButton.onClick.AddListener(() => GameManager.Instance.QuitGame());
-        }
-        #endregion
-
-        #region HUD Updates
-        /// <summary>
-        /// Update health display.
-        /// </summary>
-        /// <param name="current">Current health</param>
-        /// <param name="max">Max health</param>
-        private void UpdateHealth(float current, float max)
-        {
             if (_healthBar != null)
             {
                 _healthBar.fillAmount = current / max;
             }
-
-            if (_healthText != null)
-            {
-                _healthText.text = $"{Mathf.CeilToInt(current)}";
-            }
         }
 
-        /// <summary>
-        /// Update ammo display.
-        /// </summary>
-        /// <param name="current">Current ammo in magazine</param>
-        /// <param name="reserve">Reserve ammo</param>
-        private void UpdateAmmo(int current, int reserve)
+        private void UpdateArmorUI(float current, float max)
         {
-            if (_ammoText != null)
+            if (_armorText != null)
             {
-                _ammoText.text = $"{current} / {reserve}";
+                _armorText.text = $"Armor: {Mathf.CeilToInt(current)}";
+            }
+
+            if (_armorBar != null)
+            {
+                _armorBar.fillAmount = current / max;
             }
         }
 
-        /// <summary>
-        /// Update score display.
-        /// </summary>
-        /// <param name="score">Current score</param>
-        private void UpdateScore(int score)
+        private void UpdateAmmoUI()
         {
-            if (_scoreText != null)
+            if (_weaponManager == null || _ammoText == null) return;
+
+            var currentWeapon = _weaponManager.GetCurrentWeapon();
+            if (currentWeapon != null)
             {
-                _scoreText.text = $"Score: {score}";
+                _ammoText.text = $"{currentWeapon.GetCurrentAmmo()} / {currentWeapon.GetReserveAmmo()}";
             }
         }
 
-        /// <summary>
-        /// Show damage direction indicator.
-        /// </summary>
-        /// <param name="damageSource">Position of damage source</param>
-        private void ShowDamageDirection(Vector3 damageSource)
+        public void ShowDamageIndicator()
         {
-            // Simple red flash for now
-            if (_damageVignette != null)
-            {
-                Color color = _damageVignette.color;
-                color.a = 0.5f;
-                _damageVignette.color = color;
-            }
+            _damageAlpha = 1f;
         }
 
-        /// <summary>
-        /// Update damage vignette fade.
-        /// </summary>
-        private void UpdateDamageVignette()
-        {
-            if (_damageVignette != null)
-            {
-                Color color = _damageVignette.color;
-                if (color.a > 0f)
-                {
-                    color.a -= Time.deltaTime * 2f;
-                    _damageVignette.color = color;
-                }
-            }
-        }
-        #endregion
-
-        #region Menu Displays
-        /// <summary>
-        /// Show pause menu.
-        /// </summary>
         private void ShowPauseMenu()
         {
-            if (_pauseMenuPanel != null)
+            if (_pauseMenu != null)
             {
-                _pauseMenuPanel.SetActive(true);
-            }
-
-            if (_hudPanel != null)
-            {
-                _hudPanel.SetActive(false);
+                _pauseMenu.SetActive(true);
             }
         }
 
-        /// <summary>
-        /// Hide pause menu.
-        /// </summary>
         private void HidePauseMenu()
         {
-            if (_pauseMenuPanel != null)
+            if (_pauseMenu != null)
             {
-                _pauseMenuPanel.SetActive(false);
-            }
-
-            if (_hudPanel != null)
-            {
-                _hudPanel.SetActive(true);
+                _pauseMenu.SetActive(false);
             }
         }
 
-        /// <summary>
-        /// Show game over screen.
-        /// </summary>
-        private void ShowGameOver()
+        private void ShowGameOverMenu()
         {
-            if (_gameOverPanel != null)
+            if (_gameOverMenu != null)
             {
-                _gameOverPanel.SetActive(true);
+                _gameOverMenu.SetActive(true);
             }
-
-            if (_hudPanel != null)
-            {
-                _hudPanel.SetActive(false);
-            }
-
-            UpdateGameOverStats();
         }
 
-        /// <summary>
-        /// Show level complete screen.
-        /// </summary>
-        private void ShowLevelComplete()
+        private void ShowLevelCompleteMenu()
         {
-            if (_levelCompletePanel != null)
+            if (_levelCompleteMenu != null)
             {
-                _levelCompletePanel.SetActive(true);
+                _levelCompleteMenu.SetActive(true);
             }
-
-            if (_hudPanel != null)
-            {
-                _hudPanel.SetActive(false);
-            }
-
-            UpdateLevelCompleteStats();
         }
 
-        /// <summary>
-        /// Update game over statistics.
-        /// </summary>
-        private void UpdateGameOverStats()
+        public void OnResumeButtonClicked()
         {
-            if (_finalScoreText != null)
-            {
-                _finalScoreText.text = $"Final Score: {GameManager.Instance.CurrentScore}";
-            }
-
-            if (_killsText != null)
-            {
-                _killsText.text = $"Kills: {GameManager.Instance.EnemiesKilled}";
-            }
-
-            if (_timeText != null)
-            {
-                int minutes = Mathf.FloorToInt(GameManager.Instance.GameTime / 60f);
-                int seconds = Mathf.FloorToInt(GameManager.Instance.GameTime % 60f);
-                _timeText.text = $"Time: {minutes:00}:{seconds:00}";
-            }
+            GameManager.Instance.ResumeGame();
         }
 
-        /// <summary>
-        /// Update level complete statistics.
-        /// </summary>
-        private void UpdateLevelCompleteStats()
+        public void OnRestartButtonClicked()
         {
-            if (_completeScoreText != null)
-            {
-                _completeScoreText.text = $"Score: {GameManager.Instance.CurrentScore}";
-            }
-
-            if (_completeKillsText != null)
-            {
-                _completeKillsText.text = $"Kills: {GameManager.Instance.EnemiesKilled}";
-            }
-
-            if (_completeTimeText != null)
-            {
-                int minutes = Mathf.FloorToInt(GameManager.Instance.GameTime / 60f);
-                int seconds = Mathf.FloorToInt(GameManager.Instance.GameTime % 60f);
-                _completeTimeText.text = $"Time: {minutes:00}:{seconds:00}";
-            }
+            GameManager.Instance.RestartLevel();
         }
-        #endregion
+
+        public void OnQuitButtonClicked()
+        {
+            GameManager.Instance.QuitGame();
+        }
     }
 }

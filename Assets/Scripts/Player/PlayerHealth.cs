@@ -1,104 +1,65 @@
 using UnityEngine;
+using System;
 using Game.Core;
 
 namespace Game.Player
 {
-    /// <summary>
-    /// Manages player health, armor, and damage handling.
-    /// </summary>
     public class PlayerHealth : MonoBehaviour, IDamageable
     {
-        #region Health Settings
-        [Header("Health Settings")]
+        [Header("Health")]
         [SerializeField] private float _maxHealth = 100f;
         [SerializeField] private float _currentHealth;
+
+        [Header("Armor")]
         [SerializeField] private float _maxArmor = 100f;
-        [SerializeField] private float _currentArmor = 0f;
-        [SerializeField] private float _armorAbsorption = 0.5f; // 50% damage reduction
+        [SerializeField] private float _currentArmor;
 
-        public float MaxHealth => _maxHealth;
-        public float CurrentHealth => _currentHealth;
-        public float MaxArmor => _maxArmor;
-        public float CurrentArmor => _currentArmor;
-        public bool IsAlive => _currentHealth > 0f;
-        #endregion
-
-        #region Regeneration
         [Header("Regeneration")]
-        [SerializeField] private bool _enableHealthRegen = false;
-        [SerializeField] private float _healthRegenRate = 5f;
-        [SerializeField] private float _healthRegenDelay = 3f;
+        [SerializeField] private bool _canRegenerate = true;
+        [SerializeField] private float _regenDelay = 5f;
+        [SerializeField] private float _regenRate = 5f;
 
-        private float _timeSinceLastDamage;
-        #endregion
+        private float _lastDamageTime;
+        private bool _isDead;
 
-        #region Events
-        public static event System.Action<float, float> OnHealthChanged;
-        public static event System.Action<float, float> OnArmorChanged;
-        public static event System.Action OnPlayerDeath;
-        #endregion
+        public static event Action<float, float> OnHealthChanged;
+        public static event Action<float, float> OnArmorChanged;
+        public static event Action OnPlayerDeath;
 
-        #region Unity Lifecycle
+        public bool IsDead => _isDead;
+
         private void Start()
         {
             _currentHealth = _maxHealth;
-            _currentArmor = 0f;
+            _currentArmor = _maxArmor;
             OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
             OnArmorChanged?.Invoke(_currentArmor, _maxArmor);
         }
 
         private void Update()
         {
-            if (_enableHealthRegen && _currentHealth < _maxHealth)
+            if (_canRegenerate && !_isDead && Time.time > _lastDamageTime + _regenDelay)
             {
-                _timeSinceLastDamage += Time.deltaTime;
-
-                if (_timeSinceLastDamage >= _healthRegenDelay)
-                {
-                    Heal(_healthRegenRate * Time.deltaTime);
-                }
+                RegenerateHealth();
             }
         }
-        #endregion
 
-        #region Public Methods
-        /// <summary>
-        /// Get current armor value.
-        /// </summary>
-        public float GetCurrentArmor()
-        {
-            return _currentArmor;
-        }
-
-        /// <summary>
-        /// Get maximum armor value.
-        /// </summary>
-        public float GetMaxArmor()
-        {
-            return _maxArmor;
-        }
-
-        /// <summary>
-        /// Apply damage to the player.
-        /// </summary>
         public void TakeDamage(float damage, DamageSystem.DamageType damageType, Vector3 hitPoint)
         {
-            if (!IsAlive) return;
+            if (_isDead) return;
 
-            _timeSinceLastDamage = 0f;
+            _lastDamageTime = Time.time;
 
-            // Apply armor absorption
-            if (_currentArmor > 0f)
+            if (_currentArmor > 0)
             {
-                float armorDamage = damage * _armorAbsorption;
-                float healthDamage = damage - armorDamage;
+                float armorDamage = damage * 0.5f;
+                float healthDamage = damage * 0.5f;
 
                 _currentArmor -= armorDamage;
-
-                if (_currentArmor < 0f)
+                if (_currentArmor < 0)
                 {
                     healthDamage += Mathf.Abs(_currentArmor);
-                    _currentArmor = 0f;
+                    _currentArmor = 0;
                 }
 
                 _currentHealth -= healthDamage;
@@ -109,51 +70,50 @@ namespace Game.Player
                 _currentHealth -= damage;
             }
 
-            _currentHealth = Mathf.Clamp(_currentHealth, 0f, _maxHealth);
             OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
 
-            if (_currentHealth <= 0f)
+            if (_currentHealth <= 0)
             {
                 Die();
             }
         }
 
-        /// <summary>
-        /// Heal the player.
-        /// </summary>
+        public void Die()
+        {
+            if (_isDead) return;
+
+            _isDead = true;
+            _currentHealth = 0;
+            OnPlayerDeath?.Invoke();
+            Game.Core.GameManager.Instance.GameOver();
+        }
+
         public void Heal(float amount)
         {
-            if (!IsAlive) return;
+            if (_isDead) return;
 
             _currentHealth = Mathf.Min(_currentHealth + amount, _maxHealth);
             OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
         }
 
-        /// <summary>
-        /// Add armor to the player.
-        /// </summary>
         public void AddArmor(float amount)
         {
+            if (_isDead) return;
+
             _currentArmor = Mathf.Min(_currentArmor + amount, _maxArmor);
             OnArmorChanged?.Invoke(_currentArmor, _maxArmor);
         }
 
-        /// <summary>
-        /// Handle player death.
-        /// </summary>
-        public void Die()
+        private void RegenerateHealth()
         {
-            if (!IsAlive) return;
-
-            _currentHealth = 0f;
-            OnPlayerDeath?.Invoke();
-
-            // Trigger game over
-            if (GameManager.Instance != null)
+            if (_currentHealth < _maxHealth)
             {
-                GameManager.Instance.GameOver();
+                _currentHealth = Mathf.Min(_currentHealth + _regenRate * Time.deltaTime, _maxHealth);
+                OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
             }
         }
-        #endregion
+
+        public float GetCurrentHealth() => _currentHealth;
+        public float GetMaxHealth() => _maxHealth;
     }
 }

@@ -3,74 +3,63 @@ using Game.Core;
 
 namespace Game.Enemies
 {
-    /// <summary>
-    /// Fast melee enemy that rushes the player.
-    /// </summary>
     public class EnemyGrunt : EnemyBase
     {
-        [Header("Grunt Settings")]
-        [SerializeField] private float _rushSpeed = 8f;
-        [SerializeField] private float _normalSpeed = 3.5f;
+        [Header("Grunt Specific")]
+        [SerializeField] private float _chargeSpeed = 6f;
+        [SerializeField] private float _chargeRange = 5f;
+
+        private EnemyAI _ai;
+        private bool _isCharging;
 
         protected override void Awake()
         {
             base.Awake();
-            _maxHealth = 50f;
-            _currentHealth = _maxHealth;
-            _damage = 15f;
-            _attackRange = 2f;
-            _attackCooldown = 1.5f;
+            _ai = GetComponent<EnemyAI>();
         }
 
-        protected override void Start()
-        {
-            base.Start();
-            if (_agent != null)
-            {
-                _agent.speed = _normalSpeed;
-            }
-        }
-
-        /// <summary>
-        /// Performs a melee attack.
-        /// </summary>
-        protected override void PerformAttack(Transform target)
-        {
-            // Play attack animation
-            if (_animator != null)
-            {
-                _animator.SetTrigger("Attack");
-            }
-
-            // Play attack sound
-            if (_attackSound != null)
-            {
-                AudioManager.Instance.PlaySFX3D(_attackSound, transform.position);
-            }
-
-            // Apply damage to player
-            Player.PlayerHealth playerHealth = target.GetComponent<Player.PlayerHealth>();
-            if (playerHealth != null)
-            {
-                playerHealth.TakeDamage(_damage, transform.position);
-            }
-        }
-
-        /// <summary>
-        /// Increases speed when chasing.
-        /// </summary>
         private void Update()
         {
-            if (_ai != null && _agent != null)
+            if (!_isAlive || _player == null) return;
+
+            float distanceToPlayer = Vector3.Distance(transform.position, _player.position);
+
+            if (distanceToPlayer <= _chargeRange && !_isCharging)
             {
-                if (_ai.GetCurrentState() == EnemyAI.AIState.Chase)
-                {
-                    _agent.speed = _rushSpeed;
-                }
-                else
-                {
-                    _agent.speed = _normalSpeed;
-                }
+                StartCharge();
+            }
+
+            if (_isCharging)
+            {
+                ChargeAtPlayer();
+            }
+        }
+
+        private void StartCharge()
+        {
+            _isCharging = true;
+        }
+
+        private void ChargeAtPlayer()
+        {
+            Vector3 direction = (_player.position - transform.position).normalized;
+            transform.position += direction * _chargeSpeed * Time.deltaTime;
+
+            float distanceToPlayer = Vector3.Distance(transform.position, _player.position);
+            if (distanceToPlayer <= _attackRange)
+            {
+                Attack();
+                _isCharging = false;
+            }
+        }
+
+        protected override void Attack()
+        {
+            base.Attack();
+            var playerHealth = _player.GetComponent<Game.Player.PlayerHealth>();
+            if (playerHealth != null)
+            {
+                playerHealth.TakeDamage(_attackDamage, DamageSystem.DamageType.Melee, transform.position);
             }
         }
     }

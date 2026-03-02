@@ -1,150 +1,81 @@
 using UnityEngine;
 using Game.Core;
-using System.Collections;
 
 namespace Game.Enemies
 {
-    /// <summary>
-    /// Ranged enemy that shoots at the player.
-    /// </summary>
     public class EnemySoldier : EnemyBase
     {
-        [Header("Soldier Settings")]
-        [SerializeField] private GameObject _projectilePrefab;
+        [Header("Soldier Specific")]
+        [SerializeField] private float _shootRange = 20f;
+        [SerializeField] private float _shootCooldown = 1.5f;
+        [SerializeField] private float _bulletDamage = 15f;
         [SerializeField] private Transform _firePoint;
-        [SerializeField] private float _projectileSpeed = 20f;
-        [SerializeField] private float _fireRange = 15f;
-        [SerializeField] private int _burstCount = 3;
-        [SerializeField] private float _burstDelay = 0.2f;
+        [SerializeField] private GameObject _bulletPrefab;
 
-        private bool _isFiring = false;
+        private float _lastShootTime;
 
-        protected override void Awake()
+        private void Update()
         {
-            base.Awake();
-            _maxHealth = 75f;
-            _currentHealth = _maxHealth;
-            _damage = 10f;
-            _attackRange = 15f;
-            _attackCooldown = 2f;
-            _armor = 20f;
+            if (!_isAlive || _player == null) return;
+
+            float distanceToPlayer = Vector3.Distance(transform.position, _player.position);
+
+            if (distanceToPlayer <= _shootRange)
+            {
+                FacePlayer();
+                TryShoot();
+            }
         }
 
-        /// <summary>
-        /// Performs a ranged attack.
-        /// </summary>
-        protected override void PerformAttack(Transform target)
+        private void FacePlayer()
         {
-            if (_isFiring)
+            Vector3 direction = (_player.position - transform.position).normalized;
+            direction.y = 0;
+            if (direction != Vector3.zero)
+            {
+                Quaternion lookRotation = Quaternion.LookRotation(direction);
+                transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, Time.deltaTime * 5f);
+            }
+        }
+
+        private void TryShoot()
+        {
+            if (Time.time < _lastShootTime + _shootCooldown)
                 return;
 
-            StartCoroutine(FireBurst(target));
+            _lastShootTime = Time.time;
+            Shoot();
         }
 
-        /// <summary>
-        /// Fires a burst of projectiles.
-        /// </summary>
-        private IEnumerator FireBurst(Transform target)
+        private void Shoot()
         {
-            _isFiring = true;
+            if (_firePoint == null || _player == null) return;
 
-            for (int i = 0; i < _burstCount; i++)
+            Vector3 direction = (_player.position - _firePoint.position).normalized;
+            Ray ray = new Ray(_firePoint.position, direction);
+            RaycastHit hit;
+
+            if (Physics.Raycast(ray, out hit, _shootRange))
             {
-                FireProjectile(target);
-                yield return new WaitForSeconds(_burstDelay);
-            }
-
-            _isFiring = false;
-        }
-
-        /// <summary>
-        /// Fires a single projectile.
-        /// </summary>
-        private void FireProjectile(Transform target)
-        {
-            if (_firePoint == null || target == null)
-                return;
-
-            // Play attack sound
-            if (_attackSound != null)
-            {
-                AudioManager.Instance.PlaySFX3D(_attackSound, transform.position);
-            }
-
-            // Calculate direction with some inaccuracy
-            Vector3 direction = (target.position - _firePoint.position).normalized;
-            direction += new Vector3(
-                Random.Range(-0.1f, 0.1f),
-                Random.Range(-0.1f, 0.1f),
-                Random.Range(-0.1f, 0.1f)
-            );
-
-            // Create projectile
-            if (_projectilePrefab != null)
-            {
-                GameObject projectile = Instantiate(
-                    _projectilePrefab,
-                    _firePoint.position,
-                    Quaternion.LookRotation(direction)
-                );
-
-                Rigidbody rb = projectile.GetComponent<Rigidbody>();
-                if (rb != null)
+                if (hit.collider.CompareTag("Player"))
                 {
-                    rb.velocity = direction * _projectileSpeed;
-                }
-
-                EnemyProjectile proj = projectile.GetComponent<EnemyProjectile>();
-                if (proj != null)
-                {
-                    proj.Initialize(_damage, DamageSystem.DamageType.Bullet);
-                }
-
-                Destroy(projectile, 5f);
-            }
-            else
-            {
-                // Fallback to raycast
-                if (Physics.Raycast(_firePoint.position, direction, out RaycastHit hit, _fireRange))
-                {
-                    Player.PlayerHealth playerHealth = hit.collider.GetComponent<Player.PlayerHealth>();
+                    var playerHealth = hit.collider.GetComponent<Game.Player.PlayerHealth>();
                     if (playerHealth != null)
                     {
-                        playerHealth.TakeDamage(_damage, hit.point);
+                        playerHealth.TakeDamage(_bulletDamage, DamageSystem.DamageType.Bullet, hit.point);
                     }
                 }
             }
         }
-    }
 
-    /// <summary>
-    /// Enemy projectile component.
-    /// </summary>
-    public class EnemyProjectile : MonoBehaviour
-    {
-        private float _damage;
-        private DamageSystem.DamageType _damageType;
-
-        public void Initialize(float damage, DamageSystem.DamageType damageType)
+        protected override void Attack()
         {
-            _damage = damage;
-            _damageType = damageType;
-        }
-
-        private void OnTriggerEnter(Collider other)
-        {
-            // Don't hit other enemies
-            if (other.CompareTag("Enemy"))
-                return;
-
-            // Apply damage to player
-            Player.PlayerHealth playerHealth = other.GetComponent<Player.PlayerHealth>();
+            base.Attack();
+            var playerHealth = _player.GetComponent<Game.Player.PlayerHealth>();
             if (playerHealth != null)
             {
-                playerHealth.TakeDamage(_damage, transform.position);
+                playerHealth.TakeDamage(_attackDamage, DamageSystem.DamageType.Melee, transform.position);
             }
-
-            Destroy(gameObject);
         }
     }
 }
