@@ -4,108 +4,115 @@ using Game.Core;
 namespace Game.Weapons
 {
     /// <summary>
-    /// Semi-automatic pistol weapon.
+    /// Semi-automatic pistol weapon implementation.
     /// </summary>
     public class Pistol : WeaponBase
     {
-        private bool _hasFired = false;
+        #region Effects
+        [Header("Effects")]
+        [SerializeField] private ParticleSystem _muzzleFlash;
+        [SerializeField] private GameObject _impactEffect;
+        [SerializeField] private Transform _firePoint;
+        #endregion
+
+        #region Audio
+        [Header("Audio")]
+        [SerializeField] private AudioSource _audioSource;
+        #endregion
+
+        #region Unity Lifecycle
+        protected override void Awake()
+        {
+            base.Awake();
+
+            if (_audioSource == null)
+            {
+                _audioSource = GetComponent<AudioSource>();
+            }
+
+            if (_firePoint == null)
+            {
+                _firePoint = transform;
+            }
+        }
 
         protected override void Update()
         {
             base.Update();
 
-            // Reset fire flag when button is released
-            if (!Input.GetButton("Fire1"))
+            // Semi-automatic fire
+            if (Input.GetButtonDown("Fire1") && CanFire)
             {
-                _hasFired = false;
+                Fire();
+            }
+
+            // Reload
+            if (Input.GetKeyDown(KeyCode.R))
+            {
+                Reload();
             }
         }
+        #endregion
 
-        /// <summary>
-        /// Fires the pistol (semi-automatic).
-        /// </summary>
+        #region Fire
         public override void Fire()
         {
-            // Check if can fire
-            if (_isReloading || Time.time < _nextFireTime || _hasFired)
-                return;
+            if (!CanFire) return;
 
-            // Check ammo
-            if (_currentAmmo <= 0)
-            {
-                // Play empty sound
-                if (_weaponData.emptySound != null)
-                {
-                    AudioManager.Instance.PlaySFX(_weaponData.emptySound);
-                }
-                Reload();
-                return;
-            }
-
-            // Fire weapon
-            _hasFired = true;
             _currentAmmo--;
-            _nextFireTime = Time.time + _weaponData.fireRate;
+            _nextFireTime = Time.time + _weaponData.FireRate;
 
-            // Effects
-            PlayMuzzleFlash();
-            PlayFireSound();
-            EjectShell();
-
-            // Raycast
-            Vector3 direction = _playerCamera.transform.forward;
-            direction = ApplySpread(direction);
-
-            if (PerformRaycast(_playerCamera.transform.position, direction, out RaycastHit hit))
+            // Play effects
+            if (_muzzleFlash != null)
             {
-                ApplyDamage(hit);
+                _muzzleFlash.Play();
             }
 
-            // Recoil
-            IncreaseSpread();
+            if (_audioSource != null && _weaponData.fireSound != null)
+            {
+                _audioSource.PlayOneShot(_weaponData.fireSound);
+            }
+
+            // Perform raycast
+            Vector3 direction = _firePoint.forward + GetSpreadOffset();
+            RaycastHit hit;
+
+            if (PerformRaycast(_firePoint.position, direction, out hit))
+            {
+                // Apply damage
+                IDamageable damageable = hit.collider.GetComponent<IDamageable>();
+                if (damageable != null)
+                {
+                    DamageSystem.HitLocation hitLocation = DamageSystem.DetermineHitLocation(hit.collider);
+                    float damage = DamageSystem.CalculateDamage(
+                        _weaponData.Damage,
+                        hitLocation,
+                        DamageSystem.DamageType.Bullet,
+                        hit.distance,
+                        _weaponData.Range
+                    );
+                    damageable.TakeDamage(damage, DamageSystem.DamageType.Bullet, hit.point);
+                }
+
+                // Spawn impact effect
+                if (_impactEffect != null)
+                {
+                    GameObject impact = Instantiate(_impactEffect, hit.point, Quaternion.LookRotation(hit.normal));
+                    Destroy(impact, 2f);
+                }
+            }
+
+            // Apply recoil
             ApplyRecoil();
         }
 
-        /// <summary>
-        /// Reloads the pistol.
-        /// </summary>
-        public override void Reload()
-        {
-            if (_isReloading || _currentAmmo >= _weaponData.magazineSize || _reserveAmmo <= 0)
-                return;
-
-            _isReloading = true;
-            
-            if (_weaponData.reloadSound != null)
-            {
-                AudioManager.Instance.PlaySFX(_weaponData.reloadSound);
-            }
-
-            Invoke(nameof(FinishReload), _weaponData.reloadTime);
-        }
-
-        private void FinishReload()
-        {
-            int ammoNeeded = _weaponData.magazineSize - _currentAmmo;
-            int ammoToReload = Mathf.Min(ammoNeeded, _reserveAmmo);
-            
-            _currentAmmo += ammoToReload;
-            _reserveAmmo -= ammoToReload;
-            _isReloading = false;
-        }
-
-        /// <summary>
-        /// Applies camera recoil.
-        /// </summary>
         protected override void ApplyRecoil()
         {
-            // Get mouse look component and apply recoil
-            Player.MouseLook mouseLook = GetComponentInParent<Player.MouseLook>();
-            if (mouseLook != null)
+            if (_mouseLook != null && _weaponData != null)
             {
-                float recoil = _weaponData.recoilAmount + Random.Range(-_weaponData.recoilVariance, _weaponData.recoilVariance);
-                mouseLook.ApplyRecoil(recoil);
+                _mouseLook.ApplyRecoil(_weaponData.RecoilAmount, _weaponData.RecoilAmount * 0.5f);
             }
         }
+        #endregion
     }
 }

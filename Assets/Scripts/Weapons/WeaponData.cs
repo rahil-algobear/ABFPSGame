@@ -1,52 +1,44 @@
 using UnityEngine;
-using Game.Core;
 
 namespace Game.Weapons
 {
     /// <summary>
-    /// ScriptableObject containing weapon statistics and configuration.
+    /// ScriptableObject containing weapon statistics and properties.
     /// </summary>
-    [CreateAssetMenu(fileName = "New Weapon", menuName = "Game/Weapon Data")]
+    [CreateAssetMenu(fileName = "New Weapon Data", menuName = "Weapons/Weapon Data")]
     public class WeaponData : ScriptableObject
     {
-        [Header("Weapon Info")]
+        [Header("Basic Info")]
         public string weaponName = "Weapon";
         public Sprite weaponIcon;
 
         [Header("Damage")]
         public float damage = 25f;
-        public float baseDamage = 25f;
-        public DamageSystem.DamageType damageType = DamageSystem.DamageType.Bullet;
-        public float headshotMultiplier = 2f;
         public float range = 100f;
-        public float maxRange = 100f;
-        public bool hasDamageFalloff = true;
-        public int pelletsPerShot = 1;
-
-        [Header("Fire Rate")]
         public float fireRate = 0.1f;
-        public bool isAutomatic = false;
 
         [Header("Ammo")]
         public int magazineSize = 30;
-        public int maxReserveAmmo = 120;
-
-        [Header("Reload")]
+        public int maxAmmo = 300;
         public float reloadTime = 2f;
 
-        [Header("Accuracy")]
-        public float baseSpread = 0.5f;
-        public float maxSpread = 5f;
-        public float spreadIncrease = 0.2f;
-        public float spreadRecovery = 2f;
-
-        [Header("Recoil")]
-        public float recoilAmount = 1f;
-        public float recoilVariance = 0.2f;
+        [Header("Recoil & Spread")]
+        public float recoil = 1f;
+        public float spread = 0.05f;
 
         [Header("Audio")]
         public AudioClip fireSound;
         public AudioClip reloadSound;
         public AudioClip emptySound;
+
+        // Property accessors for compatibility
+        public int MagazineSize => magazineSize;
+        public int MaxReserveAmmo => maxAmmo;
+        public float ReloadTime => reloadTime;
+        public float RecoilAmount => recoil;
+        public float SpreadAmount => spread;
+        public float Range => range;
+        public float Damage => damage;
+        public float FireRate => fireRate;
     }
 }

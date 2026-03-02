@@ -8,202 +8,148 @@ namespace Game.Weapons
     /// </summary>
     public class PlasmaRifle : WeaponBase
     {
+        #region Effects
+        [Header("Effects")]
+        [SerializeField] private ParticleSystem _muzzleFlash;
+        [SerializeField] private GameObject _impactEffect;
+        [SerializeField] private Transform _firePoint;
+        [SerializeField] private LineRenderer _beamEffect;
+        #endregion
+
+        #region Audio
+        [Header("Audio")]
+        [SerializeField] private AudioSource _audioSource;
+        #endregion
+
+        #region Plasma Settings
         [Header("Plasma Settings")]
-        [SerializeField] private GameObject _plasmaProjectilePrefab;
-        [SerializeField] private float _projectileSpeed = 50f;
-        [SerializeField] private float _projectileLifetime = 3f;
+        [SerializeField] private float _beamDuration = 0.1f;
+        [SerializeField] private Color _beamColor = Color.cyan;
+        #endregion
 
-        /// <summary>
-        /// Fires the plasma rifle (automatic).
-        /// </summary>
-        public override void Fire()
+        #region Unity Lifecycle
+        protected override void Awake()
         {
-            // Check if can fire
-            if (_isReloading || Time.time < _nextFireTime)
-                return;
+            base.Awake();
 
-            // Check ammo
-            if (_currentAmmo <= 0)
+            if (_audioSource == null)
             {
-                if (_weaponData.emptySound != null)
-                {
-                    AudioManager.Instance.PlaySFX(_weaponData.emptySound);
-                }
-                Reload();
-                return;
+                _audioSource = GetComponent<AudioSource>();
             }
 
-            // Fire weapon
+            if (_firePoint == null)
+            {
+                _firePoint = transform;
+            }
+
+            if (_beamEffect != null)
+            {
+                _beamEffect.enabled = false;
+            }
+        }
+
+        protected override void Update()
+        {
+            base.Update();
+
+            // Automatic fire
+            if (Input.GetButton("Fire1") && CanFire)
+            {
+                Fire();
+            }
+
+            // Reload
+            if (Input.GetKeyDown(KeyCode.R))
+            {
+                Reload();
+            }
+        }
+        #endregion
+
+        #region Fire
+        public override void Fire()
+        {
+            if (!CanFire) return;
+
             _currentAmmo--;
-            _nextFireTime = Time.time + _weaponData.fireRate;
+            _nextFireTime = Time.time + _weaponData.FireRate;
 
-            // Effects
-            PlayMuzzleFlash();
-            PlayFireSound();
+            // Play effects
+            if (_muzzleFlash != null)
+            {
+                _muzzleFlash.Play();
+            }
 
-            // Fire plasma projectile
-            FirePlasmaProjectile();
+            if (_audioSource != null && _weaponData.fireSound != null)
+            {
+                _audioSource.PlayOneShot(_weaponData.fireSound);
+            }
 
-            // Recoil
-            IncreaseSpread();
+            // Perform raycast
+            Vector3 direction = _firePoint.forward + GetSpreadOffset();
+            RaycastHit hit;
+
+            if (PerformRaycast(_firePoint.position, direction, out hit))
+            {
+                // Apply damage
+                IDamageable damageable = hit.collider.GetComponent<IDamageable>();
+                if (damageable != null)
+                {
+                    DamageSystem.HitLocation hitLocation = DamageSystem.DetermineHitLocation(hit.collider);
+                    float damage = DamageSystem.CalculateDamage(
+                        _weaponData.Damage,
+                        hitLocation,
+                        DamageSystem.DamageType.Plasma,
+                        hit.distance,
+                        _weaponData.Range
+                    );
+                    damageable.TakeDamage(damage, DamageSystem.DamageType.Plasma, hit.point);
+                }
+
+                // Spawn impact effect
+                if (_impactEffect != null)
+                {
+                    GameObject impact = Instantiate(_impactEffect, hit.point, Quaternion.LookRotation(hit.normal));
+                    Destroy(impact, 2f);
+                }
+
+                // Show beam effect
+                if (_beamEffect != null)
+                {
+                    StartCoroutine(ShowBeam(hit.point));
+                }
+            }
+            else
+            {
+                // Show beam to max range
+                if (_beamEffect != null)
+                {
+                    StartCoroutine(ShowBeam(_firePoint.position + direction * _weaponData.Range));
+                }
+            }
+
+            // Apply recoil
             ApplyRecoil();
         }
 
-        /// <summary>
-        /// Reloads the plasma rifle.
-        /// </summary>
-        public override void Reload()
-        {
-            if (_isReloading || _currentAmmo >= _weaponData.magazineSize || _reserveAmmo <= 0)
-                return;
-
-            _isReloading = true;
-            
-            if (_weaponData.reloadSound != null)
-            {
-                AudioManager.Instance.PlaySFX(_weaponData.reloadSound);
-            }
-
-            Invoke(nameof(FinishReload), _weaponData.reloadTime);
-        }
-
-        private void FinishReload()
-        {
-            int ammoNeeded = _weaponData.magazineSize - _currentAmmo;
-            int ammoToReload = Mathf.Min(ammoNeeded, _reserveAmmo);
-            
-            _currentAmmo += ammoToReload;
-            _reserveAmmo -= ammoToReload;
-            _isReloading = false;
-        }
-
-        /// <summary>
-        /// Fires a plasma projectile.
-        /// </summary>
-        private void FirePlasmaProjectile()
-        {
-            if (_plasmaProjectilePrefab == null || _muzzlePoint == null)
-            {
-                // Fallback to raycast if no projectile prefab
-                FireRaycast();
-                return;
-            }
-
-            Vector3 direction = _playerCamera.transform.forward;
-            direction = ApplySpread(direction);
-
-            GameObject projectile = Instantiate(
-                _plasmaProjectilePrefab,
-                _muzzlePoint.position,
-                Quaternion.LookRotation(direction)
-            );
-
-            // Add velocity to projectile
-            Rigidbody rb = projectile.GetComponent<Rigidbody>();
-            if (rb != null)
-            {
-                rb.velocity = direction * _projectileSpeed;
-            }
-
-            // Setup projectile damage
-            PlasmaProjectile plasma = projectile.GetComponent<PlasmaProjectile>();
-            if (plasma != null)
-            {
-                plasma.Initialize(_weaponData.damage, _weaponData.damageType, _weaponData.range);
-            }
-
-            Destroy(projectile, _projectileLifetime);
-        }
-
-        /// <summary>
-        /// Fallback raycast firing method.
-        /// </summary>
-        private void FireRaycast()
-        {
-            Vector3 direction = _playerCamera.transform.forward;
-            direction = ApplySpread(direction);
-
-            if (PerformRaycast(_playerCamera.transform.position, direction, out RaycastHit hit))
-            {
-                ApplyDamage(hit);
-            }
-        }
-
-        /// <summary>
-        /// Applies camera recoil.
-        /// </summary>
         protected override void ApplyRecoil()
         {
-            Player.MouseLook mouseLook = GetComponentInParent<Player.MouseLook>();
-            if (mouseLook != null)
+            if (_mouseLook != null && _weaponData != null)
             {
-                float recoil = _weaponData.recoilAmount * 0.5f; // Plasma rifle has less recoil
-                mouseLook.ApplyRecoil(recoil);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Plasma projectile component.
-    /// </summary>
-    public class PlasmaProjectile : MonoBehaviour
-    {
-        private float _damage;
-        private DamageSystem.DamageType _damageType;
-        private float _maxRange;
-        private Vector3 _startPosition;
-
-        [SerializeField] private GameObject _impactEffectPrefab;
-
-        private void Start()
-        {
-            _startPosition = transform.position;
-        }
-
-        private void Update()
-        {
-            // Check if exceeded max range
-            if (Vector3.Distance(_startPosition, transform.position) > _maxRange)
-            {
-                Destroy(gameObject);
+                _mouseLook.ApplyRecoil(_weaponData.RecoilAmount * 0.7f, _weaponData.RecoilAmount * 0.35f);
             }
         }
 
-        /// <summary>
-        /// Initializes the projectile with damage values.
-        /// </summary>
-        public void Initialize(float damage, DamageSystem.DamageType damageType, float maxRange)
+        private System.Collections.IEnumerator ShowBeam(Vector3 endPoint)
         {
-            _damage = damage;
-            _damageType = damageType;
-            _maxRange = maxRange;
+            _beamEffect.enabled = true;
+            _beamEffect.SetPosition(0, _firePoint.position);
+            _beamEffect.SetPosition(1, endPoint);
+
+            yield return new WaitForSeconds(_beamDuration);
+
+            _beamEffect.enabled = false;
         }
-
-        private void OnTriggerEnter(Collider other)
-        {
-            // Apply damage
-            Game.Core.IDamageable damageable = other.GetComponent<Game.Core.IDamageable>();
-            if (damageable != null)
-            {
-                float distance = Vector3.Distance(_startPosition, transform.position);
-                float finalDamage = DamageSystem.CalculateDamage(
-                    _damage,
-                    DamageSystem.DetermineHitLocation(other),
-                    _damageType,
-                    distance,
-                    _maxRange
-                );
-
-                damageable.TakeDamage(finalDamage, _damageType, transform.position);
-            }
-
-            // Create impact effect
-            if (_impactEffectPrefab != null)
-            {
-                Instantiate(_impactEffectPrefab, transform.position, Quaternion.identity);
-            }
-
-            Destroy(gameObject);
-        }
+        #endregion
     }
 }

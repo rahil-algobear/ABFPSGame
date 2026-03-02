@@ -4,56 +4,80 @@ using Game.Core;
 namespace Game.Weapons
 {
     /// <summary>
-    /// Pump-action shotgun that fires multiple pellets.
+    /// Pump-action shotgun with spread pellets.
     /// </summary>
     public class Shotgun : WeaponBase
     {
+        #region Effects
+        [Header("Effects")]
+        [SerializeField] private ParticleSystem _muzzleFlash;
+        [SerializeField] private GameObject _impactEffect;
+        [SerializeField] private Transform _firePoint;
+        #endregion
+
+        #region Audio
+        [Header("Audio")]
+        [SerializeField] private AudioSource _audioSource;
+        #endregion
+
+        #region Shotgun Settings
         [Header("Shotgun Settings")]
         [SerializeField] private int _pelletsPerShot = 8;
-        [SerializeField] private float _pelletSpread = 5f;
+        [SerializeField] private float _pelletSpread = 0.15f;
+        #endregion
 
-        private bool _hasFired = false;
+        #region Unity Lifecycle
+        protected override void Awake()
+        {
+            base.Awake();
+
+            if (_audioSource == null)
+            {
+                _audioSource = GetComponent<AudioSource>();
+            }
+
+            if (_firePoint == null)
+            {
+                _firePoint = transform;
+            }
+        }
 
         protected override void Update()
         {
             base.Update();
 
-            // Reset fire flag when button is released
-            if (!Input.GetButton("Fire1"))
+            // Semi-automatic fire
+            if (Input.GetButtonDown("Fire1") && CanFire)
             {
-                _hasFired = false;
+                Fire();
+            }
+
+            // Reload
+            if (Input.GetKeyDown(KeyCode.R))
+            {
+                Reload();
             }
         }
+        #endregion
 
-        /// <summary>
-        /// Fires the shotgun (pump-action).
-        /// </summary>
+        #region Fire
         public override void Fire()
         {
-            // Check if can fire
-            if (_isReloading || Time.time < _nextFireTime || _hasFired)
-                return;
+            if (!CanFire) return;
 
-            // Check ammo
-            if (_currentAmmo <= 0)
+            _currentAmmo--;
+            _nextFireTime = Time.time + _weaponData.FireRate;
+
+            // Play effects
+            if (_muzzleFlash != null)
             {
-                if (_weaponData.emptySound != null)
-                {
-                    AudioManager.Instance.PlaySFX(_weaponData.emptySound);
-                }
-                Reload();
-                return;
+                _muzzleFlash.Play();
             }
 
-            // Fire weapon
-            _hasFired = true;
-            _currentAmmo--;
-            _nextFireTime = Time.time + _weaponData.fireRate;
-
-            // Effects
-            PlayMuzzleFlash();
-            PlayFireSound();
-            EjectShell();
+            if (_audioSource != null && _weaponData.fireSound != null)
+            {
+                _audioSource.PlayOneShot(_weaponData.fireSound);
+            }
 
             // Fire multiple pellets
             for (int i = 0; i < _pelletsPerShot; i++)
@@ -61,68 +85,55 @@ namespace Game.Weapons
                 FirePellet();
             }
 
-            // Recoil
-            IncreaseSpread();
+            // Apply recoil
             ApplyRecoil();
         }
 
-        /// <summary>
-        /// Reloads the shotgun.
-        /// </summary>
-        public override void Reload()
-        {
-            if (_isReloading || _currentAmmo >= _weaponData.magazineSize || _reserveAmmo <= 0)
-                return;
-
-            _isReloading = true;
-            
-            if (_weaponData.reloadSound != null)
-            {
-                AudioManager.Instance.PlaySFX(_weaponData.reloadSound);
-            }
-
-            Invoke(nameof(FinishReload), _weaponData.reloadTime);
-        }
-
-        private void FinishReload()
-        {
-            int ammoNeeded = _weaponData.magazineSize - _currentAmmo;
-            int ammoToReload = Mathf.Min(ammoNeeded, _reserveAmmo);
-            
-            _currentAmmo += ammoToReload;
-            _reserveAmmo -= ammoToReload;
-            _isReloading = false;
-        }
-
-        /// <summary>
-        /// Fires a single shotgun pellet.
-        /// </summary>
         private void FirePellet()
         {
-            Vector3 direction = _playerCamera.transform.forward;
-            
-            // Apply shotgun spread
-            float spreadX = Random.Range(-_pelletSpread, _pelletSpread);
-            float spreadY = Random.Range(-_pelletSpread, _pelletSpread);
-            direction = Quaternion.Euler(spreadY, spreadX, 0) * direction;
+            Vector3 spread = new Vector3(
+                Random.Range(-_pelletSpread, _pelletSpread),
+                Random.Range(-_pelletSpread, _pelletSpread),
+                0f
+            );
 
-            if (PerformRaycast(_playerCamera.transform.position, direction, out RaycastHit hit))
+            Vector3 direction = _firePoint.forward + spread;
+            RaycastHit hit;
+
+            if (PerformRaycast(_firePoint.position, direction, out hit))
             {
-                ApplyDamage(hit);
+                // Apply damage
+                IDamageable damageable = hit.collider.GetComponent<IDamageable>();
+                if (damageable != null)
+                {
+                    DamageSystem.HitLocation hitLocation = DamageSystem.DetermineHitLocation(hit.collider);
+                    float pelletDamage = _weaponData.Damage / _pelletsPerShot;
+                    float damage = DamageSystem.CalculateDamage(
+                        pelletDamage,
+                        hitLocation,
+                        DamageSystem.DamageType.Bullet,
+                        hit.distance,
+                        _weaponData.Range
+                    );
+                    damageable.TakeDamage(damage, DamageSystem.DamageType.Bullet, hit.point);
+                }
+
+                // Spawn impact effect
+                if (_impactEffect != null)
+                {
+                    GameObject impact = Instantiate(_impactEffect, hit.point, Quaternion.LookRotation(hit.normal));
+                    Destroy(impact, 2f);
+                }
             }
         }
 
-        /// <summary>
-        /// Applies camera recoil.
-        /// </summary>
         protected override void ApplyRecoil()
         {
-            Player.MouseLook mouseLook = GetComponentInParent<Player.MouseLook>();
-            if (mouseLook != null)
+            if (_mouseLook != null && _weaponData != null)
             {
-                float recoil = _weaponData.recoilAmount * 2f; // Shotgun has more recoil
-                mouseLook.ApplyRecoil(recoil);
+                _mouseLook.ApplyRecoil(_weaponData.RecoilAmount * 1.5f, _weaponData.RecoilAmount * 0.75f);
             }
         }
+        #endregion
     }
 }

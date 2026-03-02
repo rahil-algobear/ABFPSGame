@@ -1,249 +1,137 @@
 using UnityEngine;
-using System;
-using Game.Core;
+using System.Collections.Generic;
 
 namespace Game.Weapons
 {
     /// <summary>
-    /// Manages weapon switching, ammo tracking, and weapon state.
+    /// Manages weapon switching and inventory for weapons.
     /// </summary>
     public class WeaponManager : MonoBehaviour
     {
-        #region Events
-        public static event Action<WeaponBase> OnWeaponChanged;
-        public static event Action<int, int> OnAmmoChanged;
-        #endregion
-
-        #region Weapons
+        #region Weapon Inventory
         [Header("Weapons")]
-        [SerializeField] private WeaponBase[] _weapons;
+        [SerializeField] private List<WeaponBase> _weapons = new List<WeaponBase>();
         [SerializeField] private int _currentWeaponIndex = 0;
 
         private WeaponBase _currentWeapon;
-
-        public WeaponBase CurrentWeapon => _currentWeapon;
-        #endregion
-
-        #region Weapon Sway
-        [Header("Weapon Sway")]
-        [SerializeField] private bool _enableSway = true;
-        [SerializeField] private float _swayAmount = 0.02f;
-        [SerializeField] private float _swaySmooth = 6f;
-        [SerializeField] private Transform _weaponHolder;
-
-        private Vector3 _initialWeaponPosition;
         #endregion
 
         #region Unity Lifecycle
         private void Start()
         {
-            if (_weaponHolder != null)
-            {
-                _initialWeaponPosition = _weaponHolder.localPosition;
-            }
-
-            // Initialize weapons
-            if (_weapons != null && _weapons.Length > 0)
-            {
-                for (int i = 0; i < _weapons.Length; i++)
-                {
-                    if (_weapons[i] != null)
-                    {
-                        _weapons[i].Unequip();
-                    }
-                }
-
-                SwitchWeapon(_currentWeaponIndex);
-            }
+            InitializeWeapons();
         }
 
         private void Update()
         {
-            if (GameManager.Instance.IsPaused || GameManager.Instance.IsGameOver)
-            {
-                return;
-            }
-
-            HandleWeaponInput();
-            HandleWeaponSway();
+            HandleWeaponSwitching();
+            HandleAiming();
         }
         #endregion
 
-        #region Weapon Input
-        /// <summary>
-        /// Handle weapon switching and firing input.
-        /// </summary>
-        private void HandleWeaponInput()
+        #region Initialization
+        private void InitializeWeapons()
         {
-            if (_currentWeapon == null) return;
-
-            // Weapon switching (1, 2, 3 keys)
-            if (Input.GetKeyDown(KeyCode.Alpha1))
+            // Deactivate all weapons except the first
+            for (int i = 0; i < _weapons.Count; i++)
             {
-                SwitchWeapon(0);
-            }
-            else if (Input.GetKeyDown(KeyCode.Alpha2))
-            {
-                SwitchWeapon(1);
-            }
-            else if (Input.GetKeyDown(KeyCode.Alpha3))
-            {
-                SwitchWeapon(2);
-            }
-
-            // Reload
-            if (Input.GetKeyDown(KeyCode.R))
-            {
-                _currentWeapon.Reload();
-            }
-
-            // Aim down sights
-            bool isAiming = Input.GetMouseButton(1);
-            _currentWeapon.AimDownSights(isAiming);
-
-            // Fire
-            if (_currentWeapon.WeaponData.isAutomatic)
-            {
-                if (Input.GetMouseButton(0))
+                if (_weapons[i] != null)
                 {
-                    _currentWeapon.Fire();
-                    UpdateAmmoUI();
+                    _weapons[i].gameObject.SetActive(i == _currentWeaponIndex);
                 }
             }
-            else
+
+            if (_weapons.Count > 0 && _weapons[_currentWeaponIndex] != null)
             {
-                if (Input.GetMouseButtonDown(0))
-                {
-                    _currentWeapon.Fire();
-                    UpdateAmmoUI();
-                }
+                _currentWeapon = _weapons[_currentWeaponIndex];
             }
         }
         #endregion
 
         #region Weapon Switching
-        /// <summary>
-        /// Switch to a specific weapon.
-        /// </summary>
-        /// <param name="index">Weapon index</param>
-        public void SwitchWeapon(int index)
+        private void HandleWeaponSwitching()
         {
-            if (_weapons == null || index < 0 || index >= _weapons.Length)
+            // Number key switching
+            for (int i = 0; i < _weapons.Count && i < 9; i++)
             {
-                return;
+                if (Input.GetKeyDown(KeyCode.Alpha1 + i))
+                {
+                    SwitchWeapon(i);
+                }
             }
+
+            // Mouse wheel switching
+            float scroll = Input.GetAxis("Mouse ScrollWheel");
+            if (scroll > 0f)
+            {
+                SwitchWeapon(_currentWeaponIndex - 1);
+            }
+            else if (scroll < 0f)
+            {
+                SwitchWeapon(_currentWeaponIndex + 1);
+            }
+        }
+
+        private void SwitchWeapon(int index)
+        {
+            if (index < 0 || index >= _weapons.Count || index == _currentWeaponIndex)
+                return;
 
             if (_weapons[index] == null)
-            {
                 return;
-            }
 
-            // Unequip current weapon
+            // Deactivate current weapon
             if (_currentWeapon != null)
             {
-                _currentWeapon.Unequip();
+                _currentWeapon.gameObject.SetActive(false);
             }
 
-            // Equip new weapon
+            // Activate new weapon
             _currentWeaponIndex = index;
             _currentWeapon = _weapons[_currentWeaponIndex];
-            _currentWeapon.Equip();
-
-            OnWeaponChanged?.Invoke(_currentWeapon);
-            UpdateAmmoUI();
-        }
-
-        /// <summary>
-        /// Switch to next weapon.
-        /// </summary>
-        public void NextWeapon()
-        {
-            int nextIndex = (_currentWeaponIndex + 1) % _weapons.Length;
-            SwitchWeapon(nextIndex);
-        }
-
-        /// <summary>
-        /// Switch to previous weapon.
-        /// </summary>
-        public void PreviousWeapon()
-        {
-            int prevIndex = _currentWeaponIndex - 1;
-            if (prevIndex < 0)
-            {
-                prevIndex = _weapons.Length - 1;
-            }
-            SwitchWeapon(prevIndex);
+            _currentWeapon.gameObject.SetActive(true);
         }
         #endregion
 
-        #region Weapon Sway
-        /// <summary>
-        /// Apply weapon sway based on mouse movement.
-        /// </summary>
-        private void HandleWeaponSway()
+        #region Aiming
+        private void HandleAiming()
         {
-            if (!_enableSway || _weaponHolder == null) return;
+            if (_currentWeapon == null) return;
 
-            float mouseX = Input.GetAxis("Mouse X");
-            float mouseY = Input.GetAxis("Mouse Y");
-
-            Vector3 targetPosition = _initialWeaponPosition + new Vector3(
-                -mouseX * _swayAmount,
-                -mouseY * _swayAmount,
-                0f
-            );
-
-            _weaponHolder.localPosition = Vector3.Lerp(
-                _weaponHolder.localPosition,
-                targetPosition,
-                Time.deltaTime * _swaySmooth
-            );
+            if (Input.GetButtonDown("Fire2"))
+            {
+                _currentWeapon.AimDownSights(true);
+            }
+            else if (Input.GetButtonUp("Fire2"))
+            {
+                _currentWeapon.AimDownSights(false);
+            }
         }
         #endregion
 
-        #region Ammo Management
-        /// <summary>
-        /// Update ammo UI.
-        /// </summary>
-        private void UpdateAmmoUI()
+        #region Public Methods
+        public WeaponBase GetCurrentWeapon()
         {
-            if (_currentWeapon != null)
-            {
-                OnAmmoChanged?.Invoke(_currentWeapon.CurrentAmmo, _currentWeapon.ReserveAmmo);
-            }
+            return _currentWeapon;
         }
 
-        /// <summary>
-        /// Add ammo to current weapon.
-        /// </summary>
-        /// <param name="amount">Amount to add</param>
-        public void AddAmmo(int amount)
+        public void AddWeapon(WeaponBase weapon)
         {
-            if (_currentWeapon != null)
-            {
-                _currentWeapon.AddAmmo(amount);
-                UpdateAmmoUI();
-            }
+            if (weapon == null) return;
+
+            _weapons.Add(weapon);
+            weapon.gameObject.SetActive(false);
         }
 
-        /// <summary>
-        /// Add ammo to specific weapon.
-        /// </summary>
-        /// <param name="weaponIndex">Weapon index</param>
-        /// <param name="amount">Amount to add</param>
-        public void AddAmmoToWeapon(int weaponIndex, int amount)
+        public void RemoveWeapon(WeaponBase weapon)
         {
-            if (_weapons != null && weaponIndex >= 0 && weaponIndex < _weapons.Length)
-            {
-                if (_weapons[weaponIndex] != null)
-                {
-                    _weapons[weaponIndex].AddAmmo(amount);
+            if (weapon == null) return;
 
-                    if (weaponIndex == _currentWeaponIndex)
-                    {
-                        UpdateAmmoUI();
-                    }
-                }
+            _weapons.Remove(weapon);
+
+            if (_currentWeapon == weapon)
+            {
+                SwitchWeapon(0);
             }
         }
         #endregion

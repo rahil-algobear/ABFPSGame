@@ -12,7 +12,7 @@ namespace Game.Enemies
     public class EnemyAI : MonoBehaviour
     {
         #region States
-        public enum EnemyState
+        public enum AIState
         {
             Idle,
             Patrol,
@@ -23,9 +23,9 @@ namespace Game.Enemies
         }
 
         [Header("State")]
-        [SerializeField] private EnemyState _currentState = EnemyState.Patrol;
+        [SerializeField] private AIState _currentState = AIState.Patrol;
 
-        public EnemyState CurrentState => _currentState;
+        public AIState CurrentState => _currentState;
         #endregion
 
         #region Detection
@@ -65,7 +65,6 @@ namespace Game.Enemies
             _agent = GetComponent<NavMeshAgent>();
             _enemyBase = GetComponent<EnemyBase>();
 
-            // Find player
             GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
             if (playerObj != null)
             {
@@ -77,7 +76,7 @@ namespace Game.Enemies
         {
             if (_patrolPoints == null || _patrolPoints.Length == 0)
             {
-                _currentState = EnemyState.Idle;
+                _currentState = AIState.Idle;
             }
         }
 
@@ -85,7 +84,7 @@ namespace Game.Enemies
         {
             if (!_enemyBase.IsAlive)
             {
-                _currentState = EnemyState.Death;
+                _currentState = AIState.Death;
                 return;
             }
 
@@ -94,70 +93,58 @@ namespace Game.Enemies
         #endregion
 
         #region State Machine
-        /// <summary>
-        /// Update current state behavior.
-        /// </summary>
         private void UpdateState()
         {
             switch (_currentState)
             {
-                case EnemyState.Idle:
+                case AIState.Idle:
                     IdleState();
                     break;
-                case EnemyState.Patrol:
+                case AIState.Patrol:
                     PatrolState();
                     break;
-                case EnemyState.Alert:
+                case AIState.Alert:
                     AlertState();
                     break;
-                case EnemyState.Chase:
+                case AIState.Chase:
                     ChaseState();
                     break;
-                case EnemyState.Attack:
+                case AIState.Attack:
                     AttackState();
                     break;
-                case EnemyState.Death:
+                case AIState.Death:
                     DeathState();
                     break;
             }
 
-            // Check for player detection
             CheckPlayerDetection();
         }
 
-        /// <summary>
-        /// Idle state - stand still.
-        /// </summary>
         private void IdleState()
         {
             _agent.isStopped = true;
 
             if (_playerDetected)
             {
-                _currentState = EnemyState.Alert;
+                _currentState = AIState.Alert;
             }
         }
 
-        /// <summary>
-        /// Patrol state - move between waypoints.
-        /// </summary>
         private void PatrolState()
         {
             if (_patrolPoints == null || _patrolPoints.Length == 0)
             {
-                _currentState = EnemyState.Idle;
+                _currentState = AIState.Idle;
                 return;
             }
 
             _agent.isStopped = false;
             _agent.speed = _chaseSpeed * 0.5f;
 
-            // Move to current patrol point
             if (_patrolPoints[_currentPatrolIndex] != null)
             {
                 _agent.SetDestination(_patrolPoints[_currentPatrolIndex].position);
 
-                // Check if reached patrol point
                 if (!_agent.pathPending && _agent.remainingDistance <= _agent.stoppingDistance)
                 {
                     _patrolWaitTimer += Time.deltaTime;
@@ -172,27 +159,21 @@ namespace Game.Enemies
 
             if (_playerDetected)
             {
-                _currentState = EnemyState.Alert;
+                _currentState = AIState.Alert;
             }
         }
 
-        /// <summary>
-        /// Alert state - transition to chase.
-        /// </summary>
         private void AlertState()
         {
             _agent.isStopped = true;
-            _currentState = EnemyState.Chase;
+            _currentState = AIState.Chase;
         }
 
-        /// <summary>
-        /// Chase state - pursue player.
-        /// </summary>
         private void ChaseState()
         {
             if (_player == null)
             {
-                _currentState = EnemyState.Patrol;
+                _currentState = AIState.Patrol;
                 return;
             }
 
@@ -200,63 +181,45 @@ namespace Game.Enemies
             _agent.speed = _chaseSpeed;
             _agent.SetDestination(_player.position);
 
-            // Check if in attack range
             float distanceToPlayer = Vector3.Distance(transform.position, _player.position);
             if (distanceToPlayer <= _attackDistance)
             {
-                _currentState = EnemyState.Attack;
+                _currentState = AIState.Attack;
             }
 
-            // Lose player if out of range
             if (!_playerDetected && distanceToPlayer > _sightRange * 1.5f)
             {
-                _currentState = EnemyState.Patrol;
+                _currentState = AIState.Patrol;
             }
         }
 
-        /// <summary>
-        /// Attack state - attack player.
-        /// </summary>
         private void AttackState()
         {
             if (_player == null)
             {
-                _currentState = EnemyState.Patrol;
+                _currentState = AIState.Patrol;
                 return;
             }
 
             _agent.isStopped = true;
 
-            // Face player
             Vector3 direction = (_player.position - transform.position).normalized;
-            Quaternion lookRotation = Quaternion.LookRotation(new Vector3(direction.x, 0, direction.z));
+            Quaternion lookRotation = Quaternion.LookRotation(new Vector3(direction.x, 0f, direction.z));
             transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, Time.deltaTime * 5f);
 
-            // Attack
-            _enemyBase.AttackPlayer(_player);
-
-            // Check if player moved out of range
             float distanceToPlayer = Vector3.Distance(transform.position, _player.position);
             if (distanceToPlayer > _attackDistance)
             {
-                _currentState = EnemyState.Chase;
+                _currentState = AIState.Chase;
             }
         }
 
-        /// <summary>
-        /// Death state - disabled.
-        /// </summary>
         private void DeathState()
         {
             _agent.isStopped = true;
             enabled = false;
         }
-        #endregion
 
-        #region Detection
-        /// <summary>
-        /// Check if player is detected.
-        /// </summary>
         private void CheckPlayerDetection()
         {
             if (_player == null)
@@ -265,21 +228,19 @@ namespace Game.Enemies
                 return;
             }
 
-            Vector3 directionToPlayer = (_player.position - transform.position).normalized;
             float distanceToPlayer = Vector3.Distance(transform.position, _player.position);
 
-            // Check sight range and FOV
             if (distanceToPlayer <= _sightRange)
             {
+                Vector3 directionToPlayer = (_player.position - transform.position).normalized;
                 float angle = Vector3.Angle(transform.forward, directionToPlayer);
 
                 if (angle <= _fieldOfView / 2f)
                 {
-                    // Raycast to check line of sight
                     RaycastHit hit;
-                    if (Physics.Raycast(transform.position + Vector3.up, directionToPlayer, out hit, _sightRange, _detectionMask))
+                    if (Physics.Raycast(transform.position, directionToPlayer, out hit, _sightRange, _detectionMask))
                     {
-                        if (hit.transform == _player || hit.transform.IsChildOf(_player))
+                        if (hit.transform == _player)
                         {
                             _playerDetected = true;
                             return;
@@ -288,46 +249,18 @@ namespace Game.Enemies
                 }
             }
 
+            if (distanceToPlayer <= _hearingRange)
+            {
+                _playerDetected = true;
+                return;
+            }
+
             _playerDetected = false;
         }
-        #endregion
 
-        #region Public Methods
-        /// <summary>
-        /// Called when enemy takes damage.
-        /// </summary>
-        /// <param name="hitPoint">Hit position</param>
-        /// <param name="hitDirection">Hit direction</param>
-        public void OnDamageTaken(Vector3 hitPoint, Vector3 hitDirection)
+        public AIState GetCurrentState()
         {
-            // Alert nearby enemies
-            Collider[] nearbyEnemies = Physics.OverlapSphere(transform.position, _hearingRange);
-            foreach (var col in nearbyEnemies)
-            {
-                EnemyAI otherAI = col.GetComponent<EnemyAI>();
-                if (otherAI != null && otherAI != this)
-                {
-                    otherAI.AlertToPosition(hitPoint);
-                }
-            }
-
-            // Immediately chase player
-            if (_currentState != EnemyState.Attack && _currentState != EnemyState.Chase)
-            {
-                _currentState = EnemyState.Alert;
-            }
-        }
-
-        /// <summary>
-        /// Alert enemy to a position.
-        /// </summary>
-        /// <param name="position">Alert position</param>
-        public void AlertToPosition(Vector3 position)
-        {
-            if (_currentState == EnemyState.Idle || _currentState == EnemyState.Patrol)
-            {
-                _currentState = EnemyState.Alert;
-            }
+            return _currentState;
         }
         #endregion
     }

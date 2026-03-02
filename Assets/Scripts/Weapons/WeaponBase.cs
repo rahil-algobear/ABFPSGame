@@ -1,208 +1,137 @@
 using UnityEngine;
 using Game.Core;
+using Game.Player;
 
 namespace Game.Weapons
 {
     /// <summary>
-    /// Base class for all weapons in the game.
+    /// Base class for all weapons with common functionality.
     /// </summary>
     public abstract class WeaponBase : MonoBehaviour
     {
         #region Weapon Data
-        [Header("Weapon Configuration")]
+        [Header("Weapon Data")]
         [SerializeField] protected WeaponData _weaponData;
 
-        public WeaponData WeaponData => _weaponData;
-        public string WeaponName => _weaponData != null ? _weaponData.weaponName : "Unknown";
-        #endregion
-
-        #region Ammo
-        [Header("Ammo")]
-        [SerializeField] protected int _currentAmmo;
-        [SerializeField] protected int _reserveAmmo;
-
-        public int CurrentAmmo => _currentAmmo;
-        public int ReserveAmmo => _reserveAmmo;
-        public int MaxAmmo => _weaponData != null ? _weaponData.maxAmmo : 0;
-        public int MagazineSize => _weaponData != null ? _weaponData.magazineSize : 0;
-        #endregion
-
-        #region Fire State
-        [Header("Fire State")]
-        [SerializeField] protected bool _canFire = true;
-        [SerializeField] protected float _nextFireTime = 0f;
-        [SerializeField] protected bool _isReloading = false;
-
-        public bool CanFire => _canFire && !_isReloading && _currentAmmo > 0;
-        public bool IsReloading => _isReloading;
+        protected int _currentAmmo;
+        protected int _reserveAmmo;
+        protected float _nextFireTime;
+        protected bool _isReloading;
+        protected bool _isAiming;
         #endregion
 
         #region Components
-        [Header("Components")]
-        [SerializeField] protected Transform _firePoint;
-        [SerializeField] protected ParticleSystem _muzzleFlash;
-        [SerializeField] protected AudioSource _audioSource;
+        protected MouseLook _mouseLook;
+        #endregion
 
-        protected Camera _mainCamera;
+        #region Properties
+        public WeaponData WeaponData => _weaponData;
+        public bool CanFire => !_isReloading && _currentAmmo > 0 && Time.time >= _nextFireTime;
+        public bool IsReloading => _isReloading;
+        public bool IsAiming => _isAiming;
         #endregion
 
         #region Unity Lifecycle
         protected virtual void Awake()
         {
-            _mainCamera = Camera.main;
-
-            if (_audioSource == null)
+            if (_weaponData != null)
             {
-                _audioSource = GetComponent<AudioSource>();
+                _currentAmmo = _weaponData.MagazineSize;
+                _reserveAmmo = _weaponData.MaxReserveAmmo;
             }
 
-            InitializeWeapon();
+            _mouseLook = FindObjectOfType<MouseLook>();
         }
 
         protected virtual void Start()
         {
-            // Override in subclasses if needed
+            // Override in subclasses
         }
 
         protected virtual void Update()
         {
-            // Override in subclasses if needed
-        }
-        #endregion
-
-        #region Initialization
-        /// <summary>
-        /// Initialize weapon with default values.
-        /// </summary>
-        protected virtual void InitializeWeapon()
-        {
-            if (_weaponData != null)
-            {
-                _currentAmmo = _weaponData.magazineSize;
-                _reserveAmmo = _weaponData.maxAmmo - _weaponData.magazineSize;
-            }
+            // Override in subclasses
         }
         #endregion
 
         #region Abstract Methods
-        /// <summary>
-        /// Fire the weapon. Must be implemented by subclasses.
-        /// </summary>
         public abstract void Fire();
         #endregion
 
         #region Virtual Methods
-        /// <summary>
-        /// Apply recoil to the weapon. Can be overridden by subclasses.
-        /// </summary>
         protected virtual void ApplyRecoil()
         {
-            // Default implementation - can be overridden by subclasses
-            if (_weaponData != null && _mainCamera != null)
+            if (_mouseLook != null && _weaponData != null)
             {
-                // Basic recoil implementation
-                float recoilAmount = _weaponData.recoil;
-                // Subclasses can override this for custom recoil behavior
+                _mouseLook.ApplyRecoil(_weaponData.RecoilAmount, _weaponData.RecoilAmount * 0.5f);
             }
         }
 
-        /// <summary>
-        /// Reload the weapon.
-        /// </summary>
         public virtual void Reload()
         {
-            if (_isReloading || _currentAmmo == _weaponData.magazineSize || _reserveAmmo <= 0)
+            if (_isReloading || _currentAmmo == _weaponData.MagazineSize || _reserveAmmo <= 0)
                 return;
 
             StartCoroutine(ReloadCoroutine());
         }
 
-        /// <summary>
-        /// Reload coroutine.
-        /// </summary>
         protected virtual System.Collections.IEnumerator ReloadCoroutine()
         {
             _isReloading = true;
-            _canFire = false;
 
-            // Play reload sound
-            if (_weaponData != null && _weaponData.reloadSound != null && _audioSource != null)
-            {
-                _audioSource.PlayOneShot(_weaponData.reloadSound);
-            }
+            yield return new WaitForSeconds(_weaponData.ReloadTime);
 
-            yield return new WaitForSeconds(_weaponData != null ? _weaponData.reloadTime : 1f);
-
-            // Calculate ammo to reload
-            int ammoNeeded = _weaponData.magazineSize - _currentAmmo;
+            int ammoNeeded = _weaponData.MagazineSize - _currentAmmo;
             int ammoToReload = Mathf.Min(ammoNeeded, _reserveAmmo);
 
             _currentAmmo += ammoToReload;
             _reserveAmmo -= ammoToReload;
 
             _isReloading = false;
-            _canFire = true;
         }
 
-        /// <summary>
-        /// Add ammo to reserve.
-        /// </summary>
-        public virtual void AddAmmo(int amount)
+        public virtual void AimDownSights(bool aiming)
         {
-            _reserveAmmo = Mathf.Min(_reserveAmmo + amount, _weaponData.maxAmmo - _weaponData.magazineSize);
+            _isAiming = aiming;
         }
 
-        /// <summary>
-        /// Check if weapon can fire based on fire rate.
-        /// </summary>
-        protected virtual bool CheckFireRate()
+        protected virtual Vector3 GetSpreadOffset()
         {
-            if (Time.time >= _nextFireTime)
-            {
-                _nextFireTime = Time.time + (1f / _weaponData.fireRate);
-                return true;
-            }
-            return false;
+            if (_weaponData == null) return Vector3.zero;
+
+            float spread = _isAiming ? _weaponData.SpreadAmount * 0.5f : _weaponData.SpreadAmount;
+            return new Vector3(
+                Random.Range(-spread, spread),
+                Random.Range(-spread, spread),
+                0f
+            );
         }
 
-        /// <summary>
-        /// Play muzzle flash effect.
-        /// </summary>
-        protected virtual void PlayMuzzleFlash()
+        protected virtual bool PerformRaycast(Vector3 origin, Vector3 direction, out RaycastHit hit)
         {
-            if (_muzzleFlash != null)
-            {
-                _muzzleFlash.Play();
-            }
+            return Physics.Raycast(origin, direction, out hit, _weaponData.Range);
         }
 
-        /// <summary>
-        /// Play fire sound.
-        /// </summary>
-        protected virtual void PlayFireSound()
+        protected virtual void SpawnMuzzleFlash()
         {
-            if (_weaponData != null && _weaponData.fireSound != null && _audioSource != null)
-            {
-                _audioSource.PlayOneShot(_weaponData.fireSound);
-            }
+            // Override in subclasses if needed
+        }
+        #endregion
+
+        #region Public Methods
+        public int GetCurrentAmmo()
+        {
+            return _currentAmmo;
         }
 
-        /// <summary>
-        /// Equip the weapon.
-        /// </summary>
-        public virtual void Equip()
+        public int GetReserveAmmo()
         {
-            gameObject.SetActive(true);
-            _canFire = true;
+            return _reserveAmmo;
         }
 
-        /// <summary>
-        /// Unequip the weapon.
-        /// </summary>
-        public virtual void Unequip()
+        public void AddReserveAmmo(int amount)
         {
-            gameObject.SetActive(false);
-            _canFire = false;
+            _reserveAmmo = Mathf.Min(_reserveAmmo + amount, _weaponData.MaxReserveAmmo);
         }
         #endregion
     }
