@@ -219,7 +219,7 @@ namespace Game.Core
         /// <param name="clip">Audio clip to play</param>
         /// <param name="position">World position</param>
         /// <param name="volumeScale">Volume scale multiplier</param>
-        public void PlaySpatialSFX(AudioClip clip, Vector3 position, float volumeScale = 1f)
+        public void PlaySFX3D(AudioClip clip, Vector3 position, float volumeScale = 1f)
         {
             if (clip == null) return;
 
@@ -229,6 +229,17 @@ namespace Game.Core
                 availableSource.transform.position = position;
                 availableSource.PlayOneShot(clip, volumeScale);
             }
+        }
+
+        /// <summary>
+        /// Play a spatial 3D sound effect attached to a transform.
+        /// </summary>
+        /// <param name="clip">Audio clip to play</param>
+        /// <param name="parent">Transform to attach to</param>
+        /// <param name="volumeScale">Volume scale multiplier</param>
+        public void PlaySpatialSFX(AudioClip clip, Vector3 position, float volumeScale = 1f)
+        {
+            PlaySFX3D(clip, position, volumeScale);
         }
 
         /// <summary>

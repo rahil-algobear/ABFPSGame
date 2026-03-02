@@ -1,130 +1,117 @@
 using UnityEngine;
-using System;
 using Game.Core;
 
 namespace Game.Player
 {
     /// <summary>
-    /// Manages player health, damage, and regeneration.
+    /// Manages player health, armor, and damage handling.
     /// </summary>
-    public class PlayerHealth : MonoBehaviour
+    public class PlayerHealth : MonoBehaviour, IDamageable
     {
-        #region Events
-        public static event Action<float, float> OnHealthChanged;
-        public static event Action<Vector3> OnDamageTaken;
-        public static event Action OnPlayerDeath;
-        #endregion
-
         #region Health Settings
         [Header("Health Settings")]
         [SerializeField] private float _maxHealth = 100f;
-        [SerializeField] private float _currentHealth = 100f;
+        [SerializeField] private float _currentHealth;
+        [SerializeField] private float _maxArmor = 100f;
+        [SerializeField] private float _currentArmor = 0f;
+        [SerializeField] private float _armorAbsorption = 0.5f; // 50% damage reduction
 
         public float MaxHealth => _maxHealth;
         public float CurrentHealth => _currentHealth;
-        public float HealthPercentage => _currentHealth / _maxHealth;
+        public float MaxArmor => _maxArmor;
+        public float CurrentArmor => _currentArmor;
+        public bool IsAlive => _currentHealth > 0f;
         #endregion
 
         #region Regeneration
         [Header("Regeneration")]
-        [SerializeField] private bool _enableRegeneration = true;
-        [SerializeField] private float _regenDelay = 3f;
-        [SerializeField] private float _regenRate = 5f;
-        [SerializeField] private float _regenAmount = 1f;
+        [SerializeField] private bool _enableHealthRegen = false;
+        [SerializeField] private float _healthRegenRate = 5f;
+        [SerializeField] private float _healthRegenDelay = 3f;
 
         private float _timeSinceLastDamage;
         #endregion
 
-        #region Damage Flash
-        [Header("Damage Flash")]
-        [SerializeField] private bool _enableDamageFlash = true;
-        [SerializeField] private float _flashDuration = 0.2f;
-        [SerializeField] private Color _flashColor = new Color(1f, 0f, 0f, 0.3f);
-
-        private Material _flashMaterial;
-        private float _flashTimer;
+        #region Events
+        public static event System.Action<float, float> OnHealthChanged;
+        public static event System.Action<float, float> OnArmorChanged;
+        public static event System.Action OnPlayerDeath;
         #endregion
 
         #region Unity Lifecycle
         private void Start()
         {
             _currentHealth = _maxHealth;
-            _timeSinceLastDamage = 0f;
-
+            _currentArmor = 0f;
             OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
+            OnArmorChanged?.Invoke(_currentArmor, _maxArmor);
         }
 
         private void Update()
         {
-            if (GameManager.Instance.IsPaused || GameManager.Instance.IsGameOver)
+            if (_enableHealthRegen && _currentHealth < _maxHealth)
             {
-                return;
-            }
+                _timeSinceLastDamage += Time.deltaTime;
 
-            HandleRegeneration();
-            HandleDamageFlash();
-        }
-        #endregion
-
-        #region Regeneration
-        /// <summary>
-        /// Handle health regeneration over time.
-        /// </summary>
-        private void HandleRegeneration()
-        {
-            if (!_enableRegeneration || _currentHealth >= _maxHealth)
-            {
-                return;
-            }
-
-            _timeSinceLastDamage += Time.deltaTime;
-
-            if (_timeSinceLastDamage >= _regenDelay)
-            {
-                _currentHealth += _regenAmount * _regenRate * Time.deltaTime;
-                _currentHealth = Mathf.Min(_currentHealth, _maxHealth);
-                OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
-            }
-        }
-        #endregion
-
-        #region Damage Flash
-        /// <summary>
-        /// Handle damage flash effect.
-        /// </summary>
-        private void HandleDamageFlash()
-        {
-            if (_flashTimer > 0f)
-            {
-                _flashTimer -= Time.deltaTime;
+                if (_timeSinceLastDamage >= _healthRegenDelay)
+                {
+                    Heal(_healthRegenRate * Time.deltaTime);
+                }
             }
         }
         #endregion
 
         #region Public Methods
         /// <summary>
+        /// Get current armor value.
+        /// </summary>
+        public float GetCurrentArmor()
+        {
+            return _currentArmor;
+        }
+
+        /// <summary>
+        /// Get maximum armor value.
+        /// </summary>
+        public float GetMaxArmor()
+        {
+            return _maxArmor;
+        }
+
+        /// <summary>
         /// Apply damage to the player.
         /// </summary>
-        /// <param name="damage">Damage amount</param>
-        /// <param name="damageSource">Position of damage source for directional indicator</param>
-        public void TakeDamage(float damage, Vector3 damageSource = default)
+        public void TakeDamage(float damage, DamageSystem.DamageType damageType, Vector3 hitPoint)
         {
-            if (_currentHealth <= 0f) return;
+            if (!IsAlive) return;
 
-            _currentHealth -= damage;
-            _currentHealth = Mathf.Max(_currentHealth, 0f);
             _timeSinceLastDamage = 0f;
 
-            OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
-            OnDamageTaken?.Invoke(damageSource);
-
-            // Trigger damage flash
-            if (_enableDamageFlash)
+            // Apply armor absorption
+            if (_currentArmor > 0f)
             {
-                _flashTimer = _flashDuration;
+                float armorDamage = damage * _armorAbsorption;
+                float healthDamage = damage - armorDamage;
+
+                _currentArmor -= armorDamage;
+
+                if (_currentArmor < 0f)
+                {
+                    healthDamage += Mathf.Abs(_currentArmor);
+                    _currentArmor = 0f;
+                }
+
+                _currentHealth -= healthDamage;
+                OnArmorChanged?.Invoke(_currentArmor, _maxArmor);
+            }
+            else
+            {
+                _currentHealth -= damage;
             }
 
-            // Check for death
+            _currentHealth = Mathf.Clamp(_currentHealth, 0f, _maxHealth);
+            OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
+
             if (_currentHealth <= 0f)
             {
                 Die();
@@ -134,63 +121,38 @@ namespace Game.Player
         /// <summary>
         /// Heal the player.
         /// </summary>
-        /// <param name="amount">Heal amount</param>
         public void Heal(float amount)
         {
-            if (_currentHealth >= _maxHealth) return;
+            if (!IsAlive) return;
 
-            _currentHealth += amount;
-            _currentHealth = Mathf.Min(_currentHealth, _maxHealth);
-
+            _currentHealth = Mathf.Min(_currentHealth + amount, _maxHealth);
             OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
         }
 
         /// <summary>
-        /// Set health to a specific value.
+        /// Add armor to the player.
         /// </summary>
-        /// <param name="health">New health value</param>
-        public void SetHealth(float health)
+        public void AddArmor(float amount)
         {
-            _currentHealth = Mathf.Clamp(health, 0f, _maxHealth);
-            OnHealthChanged?.Invoke(_currentHealth, _maxHealth);
-
-            if (_currentHealth <= 0f)
-            {
-                Die();
-            }
+            _currentArmor = Mathf.Min(_currentArmor + amount, _maxArmor);
+            OnArmorChanged?.Invoke(_currentArmor, _maxArmor);
         }
 
-        /// <summary>
-        /// Check if player is alive.
-        /// </summary>
-        /// <returns>True if alive</returns>
-        public bool IsAlive()
-        {
-            return _currentHealth > 0f;
-        }
-
-        /// <summary>
-        /// Get damage flash alpha for UI.
-        /// </summary>
-        /// <returns>Flash alpha value</returns>
-        public float GetDamageFlashAlpha()
-        {
-            if (_flashTimer > 0f)
-            {
-                return Mathf.Lerp(0f, _flashColor.a, _flashTimer / _flashDuration);
-            }
-            return 0f;
-        }
-        #endregion
-
-        #region Private Methods
         /// <summary>
         /// Handle player death.
         /// </summary>
-        private void Die()
+        public void Die()
         {
+            if (!IsAlive) return;
+
+            _currentHealth = 0f;
             OnPlayerDeath?.Invoke();
-            GameManager.Instance.GameOver();
+
+            // Trigger game over
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.GameOver();
+            }
         }
         #endregion
     }

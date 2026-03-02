@@ -49,6 +49,7 @@ namespace Game.Core
         public bool IsPaused => _isPaused;
         public bool IsGameOver => _isGameOver;
         public int CurrentScore => _currentScore;
+        public int Score => _currentScore;
         public int EnemiesKilled => _enemiesKilled;
         public float GameTime => _gameTime;
         #endregion
@@ -59,6 +60,7 @@ namespace Game.Core
         [SerializeField] private int _enemiesRemainingToComplete = 0;
 
         public int TotalEnemiesInLevel => _totalEnemiesInLevel;
+        public int TotalEnemies => _totalEnemiesInLevel;
         public int EnemiesRemainingToComplete => _enemiesRemainingToComplete;
         #endregion
 
@@ -123,6 +125,16 @@ namespace Game.Core
         {
             _currentScore += points;
             OnScoreChanged?.Invoke(_currentScore);
+        }
+
+        /// <summary>
+        /// Set total enemies in the level.
+        /// </summary>
+        /// <param name="total">Total enemy count</param>
+        public void SetTotalEnemies(int total)
+        {
+            _totalEnemiesInLevel = total;
+            _enemiesRemainingToComplete = total - _enemiesKilled;
         }
 
         /// <summary>
