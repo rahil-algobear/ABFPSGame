@@ -1,227 +1,153 @@
 using UnityEngine;
-using Game.Core;
-using Game.Player;
 
 namespace Game.Weapons
 {
     /// <summary>
-    /// Abstract base class for all weapons.
+    /// Base class for all weapons in the game.
     /// </summary>
     public abstract class WeaponBase : MonoBehaviour
     {
         #region Weapon Data
-        [Header("Weapon Configuration")]
+        [Header("Weapon Data")]
         [SerializeField] protected WeaponData _weaponData;
 
         public WeaponData WeaponData => _weaponData;
+        public string WeaponName => _weaponData != null ? _weaponData.weaponName : "Unknown";
         #endregion
 
         #region Ammo
-        protected int _currentAmmo;
-        protected int _reserveAmmo;
+        [Header("Ammo")]
+        [SerializeField] protected int _currentAmmo;
+        [SerializeField] protected int _reserveAmmo;
 
         public int CurrentAmmo => _currentAmmo;
         public int ReserveAmmo => _reserveAmmo;
-        public int MagazineSize => _weaponData.magazineSize;
+        public int MaxAmmo => _weaponData != null ? _weaponData.maxAmmo : 0;
+        public int MaxReserveAmmo => _weaponData != null ? _weaponData.maxReserveAmmo : 0;
         #endregion
 
         #region Fire State
+        protected bool _isFiring;
         protected float _nextFireTime;
-        protected float _currentSpread;
-        protected bool _isReloading;
-        protected bool _isAiming;
+
+        public bool CanFire => Time.time >= _nextFireTime && _currentAmmo > 0;
         #endregion
 
         #region Components
-        [Header("References")]
-        [SerializeField] protected Transform _muzzlePoint;
-        [SerializeField] protected Camera _playerCamera;
-        [SerializeField] protected MouseLook _mouseLook;
+        [Header("Components")]
+        [SerializeField] protected Transform _firePoint;
         [SerializeField] protected ParticleSystem _muzzleFlash;
-        [SerializeField] protected GameObject _shellEjectPrefab;
-        [SerializeField] protected Transform _shellEjectPoint;
-
-        protected LayerMask _hitMask;
+        [SerializeField] protected AudioSource _audioSource;
         #endregion
 
         #region Unity Lifecycle
         protected virtual void Awake()
         {
-            if (_playerCamera == null)
+            if (_weaponData != null)
             {
-                _playerCamera = Camera.main;
+                _currentAmmo = _weaponData.maxAmmo;
+                _reserveAmmo = _weaponData.maxReserveAmmo;
             }
 
-            if (_mouseLook == null)
+            if (_audioSource == null)
             {
-                _mouseLook = FindObjectOfType<MouseLook>();
+                _audioSource = GetComponent<AudioSource>();
             }
-
-            // Everything except player layer
-            _hitMask = ~(1 << LayerMask.NameToLayer("Player"));
         }
 
         protected virtual void Start()
         {
-            _currentAmmo = _weaponData.magazineSize;
-            _reserveAmmo = _weaponData.maxReserveAmmo;
-            _currentSpread = _weaponData.baseSpread;
+            // Override in derived classes
         }
 
         protected virtual void Update()
         {
-            if (GameManager.Instance.IsPaused || GameManager.Instance.IsGameOver)
-            {
-                return;
-            }
-
-            HandleSpreadRecovery();
+            // Override in derived classes
         }
         #endregion
 
-        #region Abstract Methods
+        #region Public Methods
+        /// <summary>
+        /// Get current ammo count.
+        /// </summary>
+        public int GetCurrentAmmo()
+        {
+            return _currentAmmo;
+        }
+
+        /// <summary>
+        /// Get reserve ammo count.
+        /// </summary>
+        public int GetReserveAmmo()
+        {
+            return _reserveAmmo;
+        }
+
         /// <summary>
         /// Fire the weapon.
         /// </summary>
-        public abstract void Fire();
-
-        /// <summary>
-        /// Reload the weapon.
-        /// </summary>
-        public abstract void Reload();
-        #endregion
-
-        #region Spread
-        /// <summary>
-        /// Apply spread to firing direction.
-        /// </summary>
-        protected Vector3 ApplySpread(Vector3 direction)
+        public virtual void Fire()
         {
-            float spreadX = Random.Range(-_currentSpread, _currentSpread);
-            float spreadY = Random.Range(-_currentSpread, _currentSpread);
-            return Quaternion.Euler(spreadY, spreadX, 0) * direction;
-        }
+            if (!CanFire) return;
 
-        /// <summary>
-        /// Increase spread after firing.
-        /// </summary>
-        protected void IncreaseSpread()
-        {
-            _currentSpread = Mathf.Min(_currentSpread + _weaponData.spreadIncrease, _weaponData.maxSpread);
-        }
+            _currentAmmo--;
+            _nextFireTime = Time.time + (1f / (_weaponData != null ? _weaponData.fireRate : 1f));
 
-        /// <summary>
-        /// Recover spread over time.
-        /// </summary>
-        protected void HandleSpreadRecovery()
-        {
-            if (_currentSpread > _weaponData.baseSpread)
-            {
-                _currentSpread = Mathf.Max(_currentSpread - _weaponData.spreadRecovery * Time.deltaTime, _weaponData.baseSpread);
-            }
-        }
-        #endregion
-
-        #region Raycast
-        /// <summary>
-        /// Perform raycast for hitscan weapons.
-        /// </summary>
-        protected bool PerformRaycast(Vector3 origin, Vector3 direction, out RaycastHit hit)
-        {
-            return Physics.Raycast(origin, direction, out hit, _weaponData.range, _hitMask);
-        }
-
-        /// <summary>
-        /// Apply damage to hit target.
-        /// </summary>
-        protected void ApplyDamage(RaycastHit hit)
-        {
-            IDamageable damageable = hit.collider.GetComponent<IDamageable>();
-            if (damageable != null)
-            {
-                float distance = hit.distance;
-                float finalDamage = DamageSystem.CalculateDamage(
-                    _weaponData.damage,
-                    DamageSystem.DetermineHitLocation(hit.collider),
-                    _weaponData.damageType,
-                    distance,
-                    _weaponData.range
-                );
-
-                damageable.TakeDamage(finalDamage, _weaponData.damageType, hit.point);
-            }
-        }
-        #endregion
-
-        #region Effects
-        /// <summary>
-        /// Play muzzle flash effect.
-        /// </summary>
-        protected void PlayMuzzleFlash()
-        {
+            // Play muzzle flash
             if (_muzzleFlash != null)
             {
                 _muzzleFlash.Play();
             }
-        }
 
-        /// <summary>
-        /// Play fire sound.
-        /// </summary>
-        protected void PlayFireSound()
-        {
-            if (_weaponData.fireSound != null)
+            // Play fire sound
+            if (_audioSource != null && _weaponData != null && _weaponData.fireSound != null)
             {
-                AudioManager.Instance.PlaySFX(_weaponData.fireSound);
+                _audioSource.PlayOneShot(_weaponData.fireSound);
             }
         }
 
         /// <summary>
-        /// Eject shell casing.
+        /// Reload the weapon.
         /// </summary>
-        protected void EjectShell()
+        public virtual void Reload()
         {
-            if (_shellEjectPrefab != null && _shellEjectPoint != null)
+            if (_currentAmmo >= MaxAmmo || _reserveAmmo <= 0) return;
+
+            int ammoNeeded = MaxAmmo - _currentAmmo;
+            int ammoToReload = Mathf.Min(ammoNeeded, _reserveAmmo);
+
+            _currentAmmo += ammoToReload;
+            _reserveAmmo -= ammoToReload;
+
+            // Play reload sound
+            if (_audioSource != null && _weaponData != null && _weaponData.reloadSound != null)
             {
-                GameObject shell = Instantiate(_shellEjectPrefab, _shellEjectPoint.position, _shellEjectPoint.rotation);
-                Rigidbody rb = shell.GetComponent<Rigidbody>();
-                if (rb != null)
-                {
-                    rb.AddForce(_shellEjectPoint.right * Random.Range(2f, 4f), ForceMode.Impulse);
-                    rb.AddTorque(Random.insideUnitSphere * 10f);
-                }
-                Destroy(shell, 3f);
+                _audioSource.PlayOneShot(_weaponData.reloadSound);
             }
         }
 
-        /// <summary>
-        /// Apply camera recoil.
-        /// </summary>
-        protected virtual void ApplyRecoil()
-        {
-            if (_mouseLook != null)
-            {
-                float recoil = _weaponData.recoilAmount + Random.Range(-_weaponData.recoilVariance, _weaponData.recoilVariance);
-                _mouseLook.ApplyRecoil(recoil);
-            }
-        }
-        #endregion
-
-        #region Ammo Management
         /// <summary>
         /// Add ammo to reserve.
         /// </summary>
-        public void AddAmmo(int amount)
+        public virtual void AddAmmo(int amount)
         {
-            _reserveAmmo = Mathf.Min(_reserveAmmo + amount, _weaponData.maxReserveAmmo);
+            _reserveAmmo = Mathf.Min(_reserveAmmo + amount, MaxReserveAmmo);
         }
 
         /// <summary>
-        /// Check if weapon needs reload.
+        /// Equip the weapon.
         /// </summary>
-        public bool NeedsReload()
+        public virtual void Equip()
         {
-            return _currentAmmo < _weaponData.magazineSize && _reserveAmmo > 0;
+            gameObject.SetActive(true);
+        }
+
+        /// <summary>
+        /// Unequip the weapon.
+        /// </summary>
+        public virtual void Unequip()
+        {
+            gameObject.SetActive(false);
         }
         #endregion
     }
