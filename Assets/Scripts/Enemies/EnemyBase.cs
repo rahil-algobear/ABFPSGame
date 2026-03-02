@@ -13,9 +13,11 @@ namespace Game.Enemies
         [SerializeField] protected float _maxHealth = 100f;
         [SerializeField] protected float _moveSpeed = 3f;
         [SerializeField] protected float _attackDamage = 10f;
-        [SerializeField] protected int _scoreValue = 100;
+        [SerializeField] protected float _attackRange = 2f;
+        [SerializeField] protected float _attackCooldown = 1f;
 
         protected float _currentHealth;
+        protected float _lastAttackTime;
         protected bool _isAlive = true;
 
         public bool IsAlive => _isAlive;
@@ -23,18 +25,30 @@ namespace Game.Enemies
         public float MaxHealth => _maxHealth;
         #endregion
 
-        #region Unity Lifecycle
+        #region Virtual Methods
+        /// <summary>
+        /// Virtual Awake method that can be overridden by subclasses.
+        /// </summary>
         protected virtual void Awake()
         {
             _currentHealth = _maxHealth;
         }
 
+        /// <summary>
+        /// Virtual Start method that can be overridden by subclasses.
+        /// </summary>
         protected virtual void Start()
         {
+            // Base implementation - can be overridden
         }
 
-        protected virtual void Update()
+        /// <summary>
+        /// Virtual method for performing attacks. Must be implemented by subclasses.
+        /// </summary>
+        /// <param name="target">The target to attack</param>
+        protected virtual void PerformAttack(Transform target)
         {
+            // Base implementation - can be overridden
         }
         #endregion
 
@@ -56,26 +70,11 @@ namespace Game.Enemies
             if (!_isAlive) return;
 
             _isAlive = false;
-
-            // Register kill with GameManager
+            // Notify GameManager of enemy death
             if (GameManager.Instance != null)
             {
-                GameManager.Instance.RegisterEnemyKill(_scoreValue);
+                GameManager.Instance.RegisterEnemyKill(100);
             }
-
-            // Cleanup
-            Destroy(gameObject, 2f);
-        }
-        #endregion
-
-        #region Abstract Methods
-        /// <summary>
-        /// Perform attack on target.
-        /// </summary>
-        /// <param name="target">Target transform</param>
-        protected virtual void PerformAttack(Transform target)
-        {
-            // Base implementation - can be overridden by subclasses
         }
         #endregion
     }
